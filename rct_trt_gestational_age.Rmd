@@ -1,0 +1,375 @@
+---
+title: "Obstetrics and Periodontal Therapy (OPT) RCT treatment effect on gestational age"
+author: "Hajin Jang"
+date: "12/6/2023"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_depth: '3'
+    code_folding: show
+---
+
+### This analysis uses clinical trial data to assess baseline balance between treatment groups and to evaluate the effect of treatment on gestational age using parametric and nonparametric statistical tests.
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+require(knitr)
+knitr::opts_chunk$set(error = T)
+```
+
+
+
+# Data 
+
+Read in the data from Excel  
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(emmeans)
+
+opt <- read_xlsx("OPT_Study_Person-level_Data.xlsx")
+```
+
+```{r}
+xtabs(~ `Birth outcome`, data=opt)
+```
+
+Filter the data set to only live births  
+
+```{r}
+opt <- opt %>%
+  filter(`Birth outcome` == "Live birth")
+```
+
+
+
+# Part 1: Associations with treatment group assignment
+
+## Clinic site by treatment group
+
+```{r}
+# numerical summary 
+tbl1 <- xtabs(~Clinic + Group , data = opt )
+tbl1
+
+# graphical (visual) summary
+opt %>% ggplot(aes(x = Clinic, fill = Clinic)) +
+  facet_wrap(.~ Group) + 
+  geom_histogram(stat = "count") + 
+  labs(x = "Geographic area of clinic site") + 
+  theme_bw() +
+  theme(legend.position = "none") # suppress legend
+
+# statistical test
+xsq = chisq.test(tbl1,correct = F)
+xsq$expected
+
+chisq.test(tbl1,correct = F)
+```
+
+**Justification of test:** Treatment group is a categorical variable with 2 levels. Clinic site is a categorical variable with 4 levels. 
+Thus, I drew a contingency table for the numerical summary, side-by-side bar charts for the graphical summary, and conducted a Chi-squared test, as the expected count of cells is all bigger than 5.
+
+
+## Age by treatment group
+
+```{r}
+# numerical summary 
+opt %>%
+  group_by(Group) %>%
+  summarise(n= n(),
+            mean = mean(Age), 
+            med = median(Age),
+            var = var(Age))
+
+# graphical (visual) summary
+# boxplot
+opt %>%
+ ggplot(aes(x = Group, y = Age)) + 
+  geom_boxplot() + 
+  theme_bw() + 
+  labs(x = "Control vs. Treatment", y = "Age")
+
+# side-by-side histograms
+opt %>%
+ ggplot(aes(x = Age, fill = Age)) + 
+  geom_histogram() + 
+  theme_bw() + 
+  labs(x = "Age") +
+  facet_wrap(.~ Group, scales = "free_y")
+
+# statistical test
+
+xtabs(~Group, data = opt)
+
+opt %>%
+  ggplot(aes(sample = Age)) + 
+  geom_qq() +
+  geom_qq_line() + 
+  theme_bw() + 
+  facet_wrap(.~ Group)
+
+var.test(Age~Group, data = opt)
+
+t.test(Age ~ Group, data = opt)
+```
+
+**Justification of test:** Treatment group is a categorical variable with 2 levels. Age is a continuous variable. 
+Thus, I calculated mean, median and variance of age by treatment group for the numerical summary, and drew side-by-side histograms and boxplots for the graphical summary. I conducted a two-sample t test, as they are random samples, the variances of two groups are not different, and both groups are approximately normally distributed.
+
+
+## Education by treatment group
+
+```{r}
+# numerical summary 
+tbl2 <- xtabs(~Education + Group , data = opt )
+tbl2
+
+# graphical (visual) summary
+opt %>% ggplot(aes(x = Education, fill = Education)) +
+  facet_wrap(.~ Group) + 
+  geom_histogram(stat = "count") + 
+  labs(x = "Education level of participants") + 
+  theme_bw() +
+  theme(legend.position = "none") # suppress legend
+
+# statistical test
+xsq2 = chisq.test(tbl2,correct = F)
+xsq2$expected
+
+chisq.test(tbl2,correct = F)
+```
+
+**Justification of test:** Treatment group is a categorical variable with 2 levels. Education is a categorical variable with 3 levels. 
+Thus, I drew a contingency table for the numerical summary, side-by-side bar charts for the graphical summary, and conducted a Chi-squared test, as the expected count of cells is all bigger than 5.
+
+
+## BMI by treatment group
+
+```{r}
+# numerical summary 
+opt %>%
+  group_by(Group) %>%
+  summarise(n= n(),
+            mean = mean(BMI), 
+            med = median(BMI),
+            var = var(BMI))
+
+# graphical (visual) summary
+# boxplot
+opt %>%
+ ggplot(aes(x = Group, y = BMI)) + 
+  geom_boxplot() + 
+  theme_bw() + 
+  labs(x = "Control vs. Treatment", y = "Body-Mass Index")
+
+# side-by-side histograms
+opt %>%
+ ggplot(aes(x = BMI, fill = BMI)) + 
+  geom_histogram() + 
+  theme_bw() + 
+  labs(x = "Body-Mass Index") +
+  facet_wrap(.~ Group, scales = "free_y")
+
+# statistical test
+xtabs(~Group, data = opt)
+
+opt %>%
+  ggplot(aes(sample = BMI)) + 
+  geom_qq() +
+  geom_qq_line() + 
+  theme_bw() + 
+  facet_wrap(.~ Group)
+
+var.test(BMI ~ Group, data = opt)
+
+t.test(BMI ~ Group, data = opt)
+
+# nonparametrix test 
+wilcox.test(BMI ~ Group, data = opt, correct=F)
+```
+
+**Justification of test:** Treatment group is a categorical variable with 2 levels. BMI is a continuous variable. 
+Thus, I calculated mean, median and variance of BMI by treatment group for the numerical summary, and drew side-by-side histograms and boxplots for the graphical summary. I conducted both two-sample t test and wilcoxon rank sum test, as they are random samples, the variances of two groups are not different, but both groups didn't fit well with normal lines in the qq plot. 
+
+
+## Summary of Part 1
+
+A Chi-squared test of the clinic site by treatment group was not statistically significant (X-squared=0.14, p-value=0.99). 
+A two sample t-test of age by treatment group was not statistically significant (t=-0.36, 95% CI=(-0.92, 0.63), p-value=0.72). 
+A Chi-squared test of the education by treatment group was not statistically significant (X-squared=0.46, p-value=0.7951).
+A two sample t-test of BMI by treatment group was not statistically significant (t=-0.62, 95% CI=(-1.35, 0.70), p-value=0.54). A Wilcoxon rank sum test of BMI by treatment group was not statistically significant (W=63957, p-value=0.6682).
+
+As all of the above covariates were not statistically significantly associated with treatment group assignment (exposure), we were allowed not to conduct multivariable analysis including the variables as covariates in the main analysis. 
+
+
+
+# Part 2: Primary outcome analysis
+
+## Gestational age by treatment group
+
+```{r}
+# numerical summary 
+opt %>%
+  group_by(Group) %>%
+  summarise(n= n(),
+            mean = mean(`GA at outcome`), 
+            med = median(`GA at outcome`),
+            var = var(`GA at outcome`))
+
+# graphical (visual) summary
+# boxplot
+opt %>%
+ ggplot(aes(x = Group, y = `GA at outcome`)) + 
+  geom_boxplot() + 
+  theme_bw() + 
+  labs(x = "Control vs. Treatment", y = "Gestational age at end of pregnancy")
+
+# side-by-side histograms
+opt %>%
+ ggplot(aes(x = `GA at outcome`, fill = `GA at outcome`)) + 
+  geom_histogram(stat = 'count', binwidth = 1) +
+  theme_bw() + 
+  labs(x = "Gestational age at end of pregnancy") +
+  facet_wrap(~ Group, scales = "free_y")
+
+
+# statistical test
+xtabs(~Group, data = opt)
+
+opt %>%
+  ggplot(aes(sample = `GA at outcome`)) + 
+  geom_qq() +
+  geom_qq_line() + 
+  theme_bw() + 
+  facet_wrap(.~ Group)
+
+var.test(`GA at outcome` ~ Group, data = opt)
+
+t.test(`GA at outcome` ~ Group, data = opt)
+
+# nonparametrix test 
+wilcox.test(`GA at outcome` ~ Group, data = opt, correct=F)
+```
+
+**Justification of test:** Treatment group is a categorical variable with 2 levels. Gestational age is a continuous variable. 
+Thus, I calculated mean, median and variance of gestational age by treatment group for the numerical summary, and drew side-by-side histograms and boxplots for the graphical summary. I conducted both two-sample t test and wilcoxon rank sum test, as they are random samples, the variances of two groups are not different, but both groups didn't fit well with normal lines in the qq plot.
+
+
+## Gestational age by participants age 
+
+```{r}
+# numerical summary 
+opt %>%
+  select(`GA at outcome`, Age) %>%
+  summarise(correlation = cor(`GA at outcome`, Age))
+
+# graphical (visual) summary
+opt %>%
+  ggplot(aes(x = `GA at outcome`, y = Age)) +
+  geom_point() +
+  labs(x = "Gestational Age at Outcome", y = "Age") +
+  theme_bw()
+
+opt %>%
+  ggplot(aes(x = Age, y = `GA at outcome`)) +
+  geom_point() +
+  geom_smooth(method = 'lm') +
+  labs(x = "Age", y = "Gestational Age at Outcome") +
+  theme_bw()
+
+# statistical test
+fit <- lm(`GA at outcome` ~ Age, data = opt)
+
+# estimated coefficients, t-tests, and global F-test
+summary(fit)
+
+#confidence interval
+confint(fit)
+```
+
+**Justification of test:** Gestational age and participants age are both continuous variables. 
+Thus, I calculated the correlation between gestational age and participants age for the numerical summary, drew a scatterplot for the graphical summary, and conducted a linear regression analysis. 
+
+
+## Gestational age by clinic site 
+
+```{r}
+# numerical summary 
+opt %>%
+  group_by(Clinic) %>%
+  summarise(n= n(),
+            mean = mean(`GA at outcome`), 
+            med = median(`GA at outcome`),
+            var = var(`GA at outcome`))
+
+# graphical (visual) summary
+# boxplot
+opt %>%
+ ggplot(aes(x = Clinic, y = `GA at outcome`)) + 
+  geom_boxplot() + 
+  theme_bw() + 
+  labs(x = "Geographic area of clinic site", y = "Gestational age at end of pregnancy")
+
+# side-by-side histograms
+opt %>%
+ ggplot(aes(x = `GA at outcome`, fill = `GA at outcome`)) + 
+  geom_histogram(stat = 'count', binwidth = 1) +
+  theme_bw() + 
+  labs(x = "Gestational age at end of pregnancy") +
+  facet_wrap(~ Clinic, scales = "free_y")
+
+# statistical test
+## ANOVA ##
+
+# check conditions
+# sample sizes table
+opt %>% group_by(Clinic) %>% summarize(n = n(), age_mean= mean(`GA at outcome`, na.rm=TRUE), age_sd= sd(`GA at outcome`, na.rm=TRUE))
+
+# qqplots for each group if sample sizes are small
+opt %>% ggplot(aes(sample = `GA at outcome`)) + geom_qq() + geom_qq_line() + facet_wrap(.~Clinic)
+
+
+#ANOVA
+model <- lm(`GA at outcome` ~ Clinic, data = opt)
+anova(model)
+
+# multiple-testing correction
+bonf.model <- emmeans(model, pairwise ~ Clinic, adjust = "bonferroni")
+bonf.model$contrasts
+
+
+
+## Kruskal-Wallis ##
+
+# check conditions
+opt %>%
+  ggplot(aes(x = `GA at outcome`)) +
+  geom_histogram(color="black", fill="gray") + 
+  facet_wrap(. ~ Clinic, nrow = 4) + 
+  theme_classic()
+
+# run test
+kruskal.test(`GA at outcome` ~ Clinic, data = opt)
+```
+
+**Justification of test:** Clinic site is a categorical variable with 4 levels. Gestational age is a continuous variable. 
+Thus, I calculated mean, median and variance of gestational age by clinic site for the numerical summary, and drew side-by-side histograms and boxplots for the graphical summary. I conducted both ANOVA and Kruskal-Wallis test, as populations by clinic site are independent, random samples, assumed to have equal population variances, but didn’t fit well with normal lines in the qq plot. 
+
+
+## Summary of Part 2
+
+A two sample t-test of gestational age by treatment group was not statistically significant (t=0.63, 95% CI=(-1.46, 2.84), p-value=0.5301). A Wilcoxon rank sum test of gestational age by treatment group was also not statistically significant (W=79482, p-value=0.7822).
+A correlation of gestational age and participants age was -0.05 and the linear association was not statistically significant (p-value=0.177, beta of age=-0.13, 95% CI=(-0.3257, 0.0600)).
+
+The result of the ANOVA analysis of gestational age by clinic site was statistically significant (F=4.7739, p-value=0.002642). After multiple-testing corrections with the Bonferroni method, it was found that the gestational age was significantly different between the clinic site of MN and MS (p-value=0.0012). The result of Kruskal-Wallis rank sum test was also significant (p-value=5.142e-07). 
+
+
+
+# Session Information
+
+```{r}
+sessionInfo()
+```

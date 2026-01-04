@@ -1,0 +1,261 @@
+---
+title: "Treatment Effects on Headache Severity: A Randomized Clinical Trial Analysis"
+author: "Hajin Jang"
+date: "10/23/2023"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    number_sections: false
+    toc_depth: '3'
+    code_folding: show
+---
+
+### This analysis uses randomized clinical trial data on headache patients to evaluate changes in headache severity between treatment and control groups using paired and two-sample parametric and nonparametric tests.
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+require(knitr)
+knitr::opts_chunk$set(error = T)
+```
+
+
+
+# Part 0
+
+```{r}
+library(tidyverse)
+
+load("acupuncture_data_reduced.RData")
+
+data <- data %>%
+  mutate(diff_pk12 = pk2-pk1)
+
+data <- data %>%
+  mutate(group_label = factor(group, levels = c(0,1), labels = c("Control", "Acupuncture Treatment")))
+```
+
+Comment: created a variable named "diff_pk12" indicating the change in headache severity between baseline and 3-month follow-up (pk2 - pk1).
+I created a factor variable to label the acupuncture and control groups (0 = control, 1 = acupuncture treatment).
+
+
+
+# Part 1  
+
+## Descriptives
+
+```{r}
+#summary statistics
+data %>%
+  summarise(mean = mean(diff_pk12, na.rm = T),
+            median = median(diff_pk12, na.rm = T),
+            var = var(diff_pk12, na.rm = T),
+            sd = sd(diff_pk12, na.rm = T),
+            min = min(diff_pk12, na.rm = T),
+            max = max(diff_pk12, na.rm = T),
+            IQR = quantile(diff_pk12, 0.75, na.rm =T)-quantile(diff_pk12, 0.25, na.rm = T))
+#histogram
+data %>%
+  ggplot(aes(x = diff_pk12)) +
+  geom_histogram(bins = 20) +
+  theme_bw() 
+
+#boxplot
+data %>%
+  ggplot(aes(y = diff_pk12)) +
+  geom_boxplot() +
+  theme_bw() 
+
+#qqplot
+qqnorm(data$diff_pk12)
+qqline(data$diff_pk12)
+```
+
+Comment: Based on the histogram, the overall shape of the distribution of the data is close to a normal distribution (bell-shaped). The mean of the difference was -4.71 with a standard deviation of 11.73. 
+In the box plot, some outliers are observed but the IQR was narrow with 10.4.  
+The QQ plot also suggests evidence that the distribution is normally distributed, showing the points nearly aligning with the normal line. 
+
+
+## Paired t test
+
+```{r}
+# two-sided paired t-test
+t.test(data$diff_pk12, mu = 0 , alternative = "two.sided")
+```
+
+**Conditions:** The data are from random samples, the first and second value of headache severity is dependent on each other, and the change in headache severity are independent. As our study sample size is n=326, the condition for the central limit theorem can be satisfied. In addition, according to the results from the histogram and QQ plot, we could assert that the sample was nearly normally distributed. 
+
+**Null vs. alternative hypotheses:** 
+
+* Null hypothesis = The change in headache severity in patients with chronic headaches is zero. (There is no difference in headache severity between baseline and 3-month follow-up.)
+* Alternative hypothesis = The change in headache severity in patients with chronic headaches is not zero. (There is a difference in headache severity between baseline and 3-month follow-up.)
+
+**Statistics:** The test statistics was t=-7.26. The p-value was 2.877e-12 with the 95% confidence interval presented as (-5.99, -3.44). This means that there is a 2.877e-12 probability of obtaining our results or more extreme if the change in headache severity is truly zero. The result (t=-7.26) from our sample is significantly different in the alpha level of 0.05.
+
+**Decision:** Reject the null hypothesis.
+
+**Conclusion:** There is a statistically significant change in headache severity between baseline and 3-month follow-up in patients with chronic headaches. (We conclude that there is a sufficient amount of evidence to reject the null hypothesis that there is no difference in headache severity between baseline and 3-month follow-up.)
+
+
+## Signed rank test
+
+```{r}
+wilcox.test(data$diff_pk12, 
+            alternative = 'two.sided',
+            mu = 0,
+            correct = F)
+```
+
+**Conditions:** The data are from simple random samples. Based on the results of summary statistics and plots, we could assume that our study sample is from a simple random sample showing the symmetric distribution. 
+
+**Null vs. alternative hypotheses:** 
+
+* Null hypothesis = The median of the change in headache severity between baseline and 3-month follow-up is equal to zero.
+* Alternative hypothesis = The median of the change in headache severity between baseline and 3-month follow-up is not equal to zero.
+
+**Statistics:** The p-value was 5.798e-15. It is statistically significant at the alpha level of 0.05.  
+ 
+**Decision:** Reject the null hypothesis.
+
+**Conclusion:** There is a statistically significant difference in headache severity between baseline and 3-month follow-up in terms of the median statistics.
+
+
+### Summary of part 1 
+Based on our results above, there is strong evidence that there is an average decrease of 4.7 in headache severity score after 3-month follow-up compared with baseline. This finding was consistent both in the parametric and nonparametric inference procedures.
+
+
+
+# Part 2  
+
+## Descriptives
+
+```{r}
+data.trt = data %>% filter(group_label == "treatment")
+data.ctrl = data %>% filter(group_label == "control")
+
+data %>% group_by(group_label) %>% 
+  summarize(mean = mean(diff_pk12, na.rm=TRUE), 
+             SD = sd(diff_pk12, na.rm=TRUE), 
+             median = median(diff_pk12, na.rm=TRUE), 
+             IQR = quantile(diff_pk12, 0.75, na.rm=TRUE)-
+                   quantile(diff_pk12, 0.25, na.rm=TRUE),
+             min = min(diff_pk12, na.rm=TRUE),
+             max = max(diff_pk12, na.rm=TRUE))
+
+data %>%
+  ggplot(aes(x = diff_pk12, fill = group_label)) + 
+  geom_histogram() + 
+  theme_bw() +
+  facet_wrap(.~group_label) + 
+  theme(legend.position = "none")
+
+data %>%
+  ggplot(aes(x = group_label, y = diff_pk12,color =group_label)) +
+  geom_boxplot() + 
+  theme_bw() + 
+  geom_jitter(aes(color = group_label), alpha = 0.5, size = 0.75, width = .25) +
+  facet_wrap(.~group_label, scales = "free") +
+  theme(legend.position = "none")
+
+# Age
+data %>% group_by(group_label) %>% 
+  summarize(mean = mean(age, na.rm=TRUE), 
+             SD = sd(age, na.rm=TRUE), 
+             median = median(age, na.rm=TRUE), 
+             IQR = quantile(age, 0.75, na.rm=TRUE)-
+                   quantile(age, 0.25, na.rm=TRUE),
+             min = min(age, na.rm=TRUE),
+             max = max(age, na.rm=TRUE))
+
+data %>%
+  ggplot(aes(x = age, fill = group_label)) + 
+  geom_histogram() + 
+  theme_bw() +
+  facet_wrap(.~group_label) + 
+  theme(legend.position = "none")
+
+# Sex
+data <- data %>%
+  mutate(sex_label = factor(sex, levels = c(0,1), labels = c("Male", " Female")))
+
+xtabs(~ sex_label + group_label, data = data) %>% 
+  addmargins()
+
+xtabs(~ sex_label + group_label, data = data) %>% 
+  prop.table(margin = 2) 
+
+data %>% ggplot(aes(x = sex_label, fill = sex_label)) +
+  facet_wrap(.~ group_label) + 
+  geom_histogram(stat = "count") + 
+  theme_bw()
+```
+
+Comment: 
+Change in headache severity: Both treatment and control groups are showing bell-shaped normal distribution. The distribution appears approximately normal, with the mean in the control group shown as -2.75 (sd=10.84) and in the treatment group as -6.45 (sd=12.23). The mean and median in each of the groups were similar, respectively.
+
+**Age:** Both age distributions in the treatment and control groups show normal distribution, with the mean age in the control group shown as 45.34 (sd=11.48) and in the treatment group as 45.73 (sd=10.65). The distribution is slightly left-skewed therefore the median in the control and treatment group are 49 and 48, respectively, which are slightly larger than each of their means.
+
+**Sex:** Both sex distribution in the control and the treatment groups show larger proportion of female patients compared to male patients. The proportion of female patients was similar between the control and treatment groups, which was 84.18% in the control group and 83.90% in the treatment group.
+
+
+## Two-sample t test
+
+```{r}
+# qq plot
+#data %>% filter(group==0) %>% qqnorm(dpk_21)
+#data %>% group_by(group_CT_f) %>% qqline(dpk_21)
+data %>%
+  ggplot(aes(sample = diff_pk12)) +
+  geom_qq() + geom_qq_line() +
+  facet_wrap(~group_label, scales = "free_y")
+
+var.test(diff_pk12~group_label, data = data)
+
+t.test(diff_pk12~group_label, data = data, alternative = "two.sided",conf.level = 0.95, var.equal = TRUE)
+```
+
+**Conditions:** The data are from random samples and the change in headache severity are independent. As our study sample size for the control and the treatment group is n=153 and n=173, respectively, the condition for the central limit theorem can be satisfied. In addition, according to the results from the histogram and QQ plot, we could assert that the sample was nearly normally distributed. 
+
+**Equality of variance:** The equality of variance test shows a p-value of 0.127, which means that there is not enough evidence to reject the null hypothesis that the variances are equal. Thus, I proceed with a two-sample t-test under the equal variance assumption.
+
+**Null vs. alternative hypotheses:**
+
+* Null hypothesis = The change in headache severity in the control group and the change in headache severity in the treatment group is equal. (There is no difference in headache severity between the control and the treatment groups.)
+* Alternative hypothesis = The change in headache severity in the control group and the change in headache severity in the treatment group is not equal. (There is a difference in headache severity between the control and the treatment groups.)
+
+**Statistics:** The test statistics was t=2.88 meaning that the sample difference in mean weight is 2.88 standard errors above 0. The p-value was 0.004 with the 95% confidence interval presented as (1.17, 6.24). This means that there is a 0.004 probability of obtaining our results or more extreme if the change in headache severity is truly zero. 
+
+**Decision:** Reject the null hypothesis.
+
+**Conclusion:** There is a statistically significant difference in the change in headache severity between the control and treatment group in patients with chronic headaches. (We conclude that there is a sufficient amount of evidence to reject the null hypothesis that there is no difference in headache severity between baseline and 3-month follow-up.)
+
+
+## Wilcoxon rank sum test
+
+```{r}
+wilcox.test(diff_pk12~group_label, data = data)
+```
+
+**Conditions:** The data are from simple random samples. Based on the results of summary statistics and plots, we could assume that our study sample is from a simple random sample showing the symmetric distribution. 
+
+**Null vs. alternative hypotheses:**
+
+* Null hypothesis = The median of the change in headache severity between the control and the treatment group is the same. 
+* Alternative hypothesis = The median of the change in headache severity between the control and the treatment group is different. 
+
+**Statistics:** The p-value was 0.001. It is statistically significant at the alpha level of 0.05.  
+ 
+**Decision:** Reject the null hypothesis.
+
+**Conclusion:** There is a statistically significant difference in headache severity between the control and the treatment group in terms of the median statistics.
+
+
+### Summary of part 2
+Based on our results above, there is strong evidence that the change in headache severity score between the baseline and 3-month follow-up was different among the control and the treatment group. This finding was consistent both in the parametric and nonparametric inference procedure.
+
+
+
+# Session Information
+
+```{r}
+sessionInfo()
+```

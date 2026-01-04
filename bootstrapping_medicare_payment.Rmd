@@ -1,0 +1,162 @@
+---
+title: "Bootstrapping Hospital Medicare Payment Data"
+author: "Hajin Jang"
+date: "due 10/08/2023"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    number_sections: false
+    toc_depth: '3'
+    code_folding: show
+---
+
+### This document uses hospital Medicare payment data to perform probability calculations under the normal distribution and to apply the central limit theorem and bootstrap resampling to infer the distribution of the sample mean.
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+require(knitr)
+knitr::opts_chunk$set(error = T)
+```
+
+
+
+# Housekeeping
+
+Load libraries  
+
+```{r}
+library(tidyverse)
+```
+
+
+
+# Part 1
+
+## Calculate the probability using the normal distribution
+
+```{r}
+pnorm(q = -2, mean = -1.8, sd = 4.3, lower.tail =T)
+```
+
+The probability of a randomly selected woman in the placebo group showing a clinically significant decline in bone-mineral density is 0.481.
+
+
+```{r}
+pnorm(q = -2, mean = 3.5, sd = 4.2, lower.tail =T)
+```
+
+The probability of a randomly selected woman in the treatment group showing a clinically significant decline in bone-mineral density is 0.095.
+
+
+```{r}
+mu=-1.8
+sig=4.3
+n=50
+pnorm(q = -2, mean = mu, sd = sig/sqrt(n), lower.tail =T)
+```
+
+The condition for the central limit theorem are met (randomly sampled & independently distributed).
+The probability of the mean of 50 women in the placebo group being a clinically significant decline in bone-mineral density is 0.371.
+
+
+
+# Part 2  
+
+## Load data and filter to only keep rows from PA
+
+```{r}
+# the data came in the form of a csv file so we will use the read_csv function
+load("hosp.RData")
+hosp <- hosp %>%
+  filter(Rndrng_Prvdr_State_Abrvtn == "PA")
+
+mean(hosp$Avg_Mdcr_Pymt_Amt)
+
+sd(hosp$Avg_Mdcr_Pymt_Amt)
+```
+
+The mean and standard deviation of Avg_Mdcr_Pymt_Amt are \$12614.74 and $15086.81, respectively.
+
+
+```{r}
+hosp %>% ggplot(aes(x=Avg_Mdcr_Pymt_Amt)) +
+        geom_histogram() +
+        theme_bw()
+
+qqnorm(hosp$Avg_Mdcr_Pymt_Amt)
+qqline(hosp$Avg_Mdcr_Pymt_Amt)
+```
+
+The distribution is right skewed and is not bell-shaped. From the qqplot, the points do not fall along the diagonal line. It shows that the average payments do not come from the population with a normal distribution.
+
+
+```{r}
+# set the seed for reproducibility
+set.seed(10022022) 
+
+# number of bootstrap samples I want to draw (10,000)
+niter = 10000 
+
+x = hosp$Avg_Mdcr_Pymt_Amt
+
+# check the length of x
+n = length(x)
+
+boot_mns = vector(length = niter)
+for(i in 1:niter){
+  # sample with replacement a sample of size n (the length of the original data vector) from the observed data
+  resamp = sample(x, size = n, replace = T) 
+  boot_mns[i] = mean(resamp)
+}
+```
+
+
+
+### I)
+
+```{r}
+# histogram
+hist(boot_mns)
+
+# qq plot 
+# see lecture slides for function to make qq plot
+qqnorm(boot_mns)
+qqline(boot_mns)
+
+mean(boot_mns)
+sd(boot_mns)
+```
+
+Description: The distribution appears approximately normal. It centered at around 12616 (mean = 12616.2, sd = 174.545).The histogram is bell-shaped and symmetric about the mean. QQplot shows that the points fall along the diagonal line, indicating it's normally distributed.
+
+
+### II)
+
+```{r}
+# double-check what size we used for each iteration of the bootstrap
+length(hosp$Avg_Mdcr_Pymt_Amt)
+
+hosp %>% summarise(n=n())
+```
+
+Comment: n is the size of the original data vector. The sample size of the dataset is 7667. 
+A bootstrap sample is another random sample of size n obtained by picking the sample with replacement. This way I can make another sample with the same size of the original sample. If our sample is representative, our observed relative frequencies of each value should be similar to the population frequencies.
+
+
+### III)
+
+```{r}
+# 95% bootstrap confidence interval
+quantile(boot_mns, c(.025,.975))
+```
+
+Comment: The 95% confidence interval for the population mean using the bootstrapped sample is between 12284.82 and 12968.36.
+
+
+
+# Session Information
+
+```{r}
+sessionInfo()
+```

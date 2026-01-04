@@ -1,0 +1,107 @@
+---
+title: "BMI & Ease of Intubation"
+author: "Hajin Jang"
+date: "11/12/2023"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    number_sections: False
+    toc_depth: '3'
+    code_folding: show
+---
+
+### This code examines the association between body mass index and ease of intubation using simple linear regression in clinical patient data.
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+require(knitr)
+knitr::opts_chunk$set(error = T)
+```
+
+```{r, message=FALSE}
+library(tidyverse)
+library(car) 
+library(emmeans) 
+```
+
+
+
+# Intubation
+
+
+## Data Management 
+
+```{r}
+# load in data and filter
+load("Laryngoscope.RData")
+
+intubation <- laryngoscope %>% filter(attempt1_S_F ==1) %>% select('BMI','ease') 
+```
+
+
+## Descriptive Statistics
+
+```{r}
+# numerical summary
+intubation %>% summarize(mean = mean(BMI, na.rm=TRUE), 
+                         SD = sd(BMI, na.rm=TRUE), 
+                         median = median(BMI, na.rm=TRUE),
+                         IQR = quantile(BMI, 0.75, na.rm=TRUE)-quantile(BMI, 0.25, na.rm=TRUE),
+                         min = min(BMI, na.rm=TRUE),
+                         max = max(BMI, na.rm=TRUE))
+
+intubation %>% summarize(mean = mean(ease, na.rm=TRUE), 
+                         SD = sd(ease, na.rm=TRUE), 
+                         median = median(ease, na.rm=TRUE),
+                         IQR = quantile(ease, 0.75, na.rm=TRUE)-quantile(ease, 0.25, na.rm=TRUE),
+                         min = min(ease, na.rm=TRUE),
+                         max = max(ease, na.rm=TRUE))
+
+# plots
+ggplot(intubation, aes(x = BMI, y = ease)) + geom_point() + geom_smooth(method = 'lm') 
+```
+
+Description: The mean (sd) of BMI is 42.0 (5.3) and the median is 42. The IQR of BMI is 6.9 and the overall BMI range included BMI 31.3 to 61. On the other hand, the mean (sd) of ease is 40.8 (28.5) and the median is 37.5. The IQR of ease is 45 and the overall ease range includes 0 to 100. 
+According to the scatter plot between BMI and ease of intubation, there was an overall negative association. 
+
+
+## Linear Regression  
+
+```{r}
+# fit the model
+fit <- lm(ease ~ BMI, data = intubation)
+
+# estimated coefficients, t-tests, and global F-test
+summary(fit)
+
+#confidence interval
+confint(fit)
+
+# predict the value for BMI = 35
+intubation.new <- data.frame(BMI=35)
+predict(fit, newdata = intubation.new)
+```
+
+Description:
+
+1. Estimated regression model: Ease of intubation = 62.78 -0.53*BMI
+
+2. Interpretation of the estimated effect of BMI (slope): With every 1 unit of BMI increase, the score of ease of intubation decreases by 0.53.
+
+3. Interpretation of the hypothesis test for the slope: The p-value of the slope is 0.37 which is higher than the alpha level of 0.05. Thus, there is not enough evidence to reject the null hypothesis. We adopt the null hypothesis that there is no linear relationship between BMI and ease of intubation.
+
+4. Interpretation of the coefficient of determination (R-squared): The R-squared score is 0.0097 which means that the model (BMI) can explain 0.97% of the variability of ease of intubation.
+
+5. The ease of intubation for a patient with a BMI of 35: When we plug in the BMI value of 35 to the linear regression equation, we could earn the score of ease of intubation as 44.21. 
+
+
+**Summary:** According to the result above, BMI is not a good predictor of ease of intubation. The result of the linear regression shows that the slope is not significant and the model could barely explain the variability of the ease of intubation (less than 1%). Thus, we could conclude that there is no linear association between BMI and ease of intubation.
+
+
+
+# Session Information
+
+```{r}
+sessionInfo()
+```

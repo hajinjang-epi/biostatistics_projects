@@ -1,0 +1,365 @@
+---
+title: "Age-Specific Patterns of Disease Activity in Patients with Rheumatoid Arthritis"
+author: "Hajin Jang"
+date: "Sep 17, 2023"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    number_sections: false
+    toc_depth: '3'
+    code_folding: show
+---
+
+### This document is a basic statistical lab report that uses data from patients with rheumatoid arthritis to conduct an exploratory analysis in R of the distributions of, and relationships among, age, disease activity (DAS_28), and years since diagnosis.
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+require(knitr)
+```
+
+
+# Load Libraries and Import Data Set
+
+Load libraries  
+
+```{r}
+library(tidyverse) # package for plotting/data management
+library(readxl) # package for reading in excel files
+```
+
+Import the data
+
+```{r}
+# read in data
+ra <- read_xlsx("ArthritisTreatment.xlsx")
+
+# Take a look at the data (just top few rows)
+head(ra)
+# use View(ra) to view the whole data set in a new tab
+```
+
+
+
+# Part 1: Univariate Descriptions
+
+## Age group 
+
+```{r}
+# create new variable with labels
+ra <- ra %>% 
+  mutate( AgeGp_f = factor(AgeGp, levels = c(1,2), 
+                           labels = c("40-70 years", "75+ years")))
+
+# table of counts
+xtabs( ~ AgeGp_f, data = ra) %>% addmargins() # margins show row/column sums
+# table of proportions
+xtabs( ~ AgeGp_f, data = ra) %>% prop.table()
+
+# plot (histogram)
+ra %>%
+  ggplot(aes(x = AgeGp_f)) + # choose variable to plot
+  geom_histogram(stat = "count") + # stat = count indicates that we want to count how many of each category appear in the data and plot those counts
+  theme_bw() # background color
+```
+
+Description: Age group is a categorical binary variable that divides patients into 2 age groups: 40-70 years and 75+ years.
+About 86.6% of patients were aged between 40 and 70 years (n=459) and about 13.4% of the patients were aged 75 years or more (n=71).
+
+
+## Age  
+
+```{r}
+# summary statistics
+ra %>%
+  summarise(mean = mean(Age),
+            median = median(Age),
+            min = min(Age),
+            max = max(Age), 
+            q25 = quantile(Age, 0.25),
+            q75 = quantile(Age,0.75),
+            sd = sd(Age)) %>%
+mutate(IQR = q75-q25)
+
+
+# histogram 
+ra %>% ggplot(aes(x = Age)) + # plot age
+  geom_histogram(binwidth = 1) + # each year gets its own bin, the larger the bin the smoother the histogram
+  theme_bw() # background color
+
+# boxplot
+ra %>% 
+  ggplot(aes(y = Age)) + # change to x = Age for a horizontal boxplot
+  geom_boxplot() + 
+  theme_bw() # background color
+```
+
+Description: The mean age of RA patients is 60.7 years with 10.5 years of standard deviation. The median age of them is 59 years, thus the age of RA patients is slightly skewed to the right. The age of RA patients ranges from 42 to 90 years. The interquartile range (IQR) of RA patients stretches from 54 to 66 years showing 12 years of the age difference within IQR.
+
+
+## Whether DAS_28 was measured 
+
+```{r}
+# make a new factor variable with readable labels
+ra <- ra %>%
+  mutate(DAS28_YN_f = factor(DAS28_YN, levels = c(1,2), labels = c("DAS_28 was not measured","DAS_28 was measured"))) 
+
+# table of counts
+xtabs( ~ DAS28_YN_f, data = ra) %>% addmargins()
+
+# table of proportions
+xtabs( ~ DAS28_YN_f, data = ra) %>% prop.table()
+
+# plot (histogram/bar plot)
+ra %>%
+  ggplot(aes(x = DAS28_YN_f)) + 
+  geom_histogram(stat = "count") + 
+  theme_bw() 
+```
+
+Description: About 87.5% of RA patients had DAS_28 not measured (n=464) while 12.5% of them (n=66) were measured for DAS_28. 
+
+
+## DAS_28 values
+
+```{r}
+# summary stats
+# HINT: use the drop_na() function if you're having trouble
+ra %>% drop_na(DAS_28) %>%
+ summarise(n=n(), 
+            mean = mean(DAS_28),
+            median = median(DAS_28),
+            min = min(DAS_28),
+            max = max(DAS_28), 
+            q25 = quantile(DAS_28, 0.25),
+            q75 = quantile(DAS_28,0.75),
+            sd = sd(DAS_28)) %>%
+mutate(IQR = q75-q25)
+
+# make some plots
+# histogram 
+ra %>% 
+  ggplot(aes(x = DAS_28)) + # plot age
+  geom_histogram(binwidth = 1) # each year gets its own bin, the larger the bin the smoother the histogram
+
+# boxplot
+ra %>% 
+  ggplot(aes(y = DAS_28)) + # change to x = Age for a horizontal boxplot
+  geom_boxplot() 
+```
+
+Description: The value of RA patients' disease activity score for 28 joints is a continuous variable with a mean value of 2.92 (standard deviation=2.77) and median value of 2.5. Considering the histogram, boxplot, and interquartile range, the maximum value 23 would be the outlier.
+
+
+## Years since diagnosis of RA
+
+```{r}
+# numerical summary
+ra %>% drop_na(Yrs_From_Dx) %>% 
+  summarise(n=n(),
+            mean = mean(Yrs_From_Dx),
+            median = median(Yrs_From_Dx),
+            min = min(Yrs_From_Dx),
+            max = max(Yrs_From_Dx), 
+            q25 = quantile(Yrs_From_Dx, 0.25),
+            q75 = quantile(Yrs_From_Dx,0.75),
+            sd = sd(Yrs_From_Dx)) %>%
+mutate(IQR = q75-q25)
+
+# make some plots
+# histogram 
+ra %>% 
+  ggplot(aes(x = Yrs_From_Dx)) + # plot age
+  geom_histogram(binwidth = 1) # each year gets its own bin, the larger the bin the smoother the histogram
+
+# boxplot
+ra %>% 
+  ggplot(aes(y = Yrs_From_Dx)) + # change to x = Age for a horizontal boxplot
+  geom_boxplot() 
+```
+
+Description: Among 515 RA patients who have value for the variable, the mean years since the diagnosis of RA is 9.4 with fairly high standard deviation reported as 9.29. According to the histogram, the distribution of years since the diagnosis of RA is skewed to right.
+
+
+
+# Part 2: Bivariate Descriptions  
+
+## Whether DAS_28 was measured and age group
+
+```{r}
+# table with margins
+xtabs(~ DAS28_YN_f + AgeGp_f, data = ra) %>% 
+  addmargins() # print row and column sums
+
+# proportion table
+xtabs(~ DAS28_YN_f + AgeGp_f, data = ra) %>% 
+  prop.table(margin = 2) # margin = 1 takes proportion within row; margin = 2 takes proportion within column
+
+# bar plot with counts
+ra %>% ggplot(aes(x = DAS28_YN_f, fill = DAS28_YN_f)) +
+  facet_wrap(.~ AgeGp_f) + # separate plot per age group
+  geom_histogram(stat = "count") + 
+  labs(x = "DAS 28 Measured") + 
+  theme_bw() +
+  theme(legend.position = "none") # suppress legend
+
+# bar plot with proportion
+ra %>% 
+  group_by(AgeGp_f, DAS28_YN_f) %>%
+  tally() %>% # count number in each group
+  mutate(prop = n/sum(n)) %>% # take proportion
+  ggplot(aes(fill = DAS28_YN_f, x=DAS28_YN_f, y = prop)) +
+  geom_histogram(stat = "identity") +
+  facet_wrap(.~ AgeGp_f) + # split by age group
+  labs(x = "DAS 28 Measured", y = "Proportion") + 
+  theme_bw() + # background color
+  theme(legend.position = "none") # don't print legend
+```
+
+Description: Both age groups show that there are more people who have not measured the DAS28 than who have measured. 86.5% of RA patients who aged 40-70 years have not measured DAS28, while 94.4% of RA patients aged 70 or more have not measured DAS28.
+
+
+## Years since diagnosis of RA and age
+
+```{r}
+# scatter plot
+ra %>% ggplot(aes(x = Yrs_From_Dx, y = Age)) + 
+  geom_point() + 
+  theme_bw()
+
+# correlation
+with(ra, cor(Yrs_From_Dx, Age, use = "pairwise.complete.obs"))
+```
+
+Description: The correlation between years since diagnosis of RA and age is 0.20, thus it shows that weak positive correlation exists between the two variables. 
+
+
+## Whether DAS_28 was measured and age
+
+```{r}
+# filter data
+ra.f <- ra %>% filter(Sex==0) # only keep rows for which Sex has the value 0
+ra.m <- ra %>% filter(Sex==1) # only keep rows for which Sex has the value 1
+```
+
+
+### Female Study Participants
+
+```{r}
+# summary stats
+ra.f %>% group_by(DAS28_YN_f) %>%
+  summarise(n=n(),
+            mean = mean(Age),
+            median = median(Age),
+            min = min(Age),
+            max = max(Age), 
+            q25 = quantile(Age, 0.25),
+            q75 = quantile(Age,0.75),
+            sd = sd(Age)) %>%
+mutate(IQR = q75-q25)
+
+# table with margins
+xtabs(~ DAS28_YN_f + AgeGp_f, data = ra.f) %>% 
+  addmargins() # print row and column sums
+
+# proportion table
+xtabs(~ DAS28_YN_f + AgeGp_f, data = ra.f) %>% 
+  prop.table(margin = 2) # margin = 1 takes proportion within row; margin = 2 takes proportion within column
+
+
+# make some plots
+# bar plot with counts
+ra.f %>% ggplot(aes(x = DAS28_YN_f, fill = DAS28_YN_f)) +
+  facet_wrap(.~ AgeGp_f) + # separate plot per age group
+  geom_histogram(stat = "count") + 
+  labs(x = "DAS 28 Measured") + 
+  theme_bw() +
+  theme(legend.position = "none") # suppress legend
+
+# bar plot with proportion
+ra.f %>% 
+  group_by(AgeGp_f, DAS28_YN_f) %>%
+  tally() %>% # count number in each group
+  mutate(prop = n/sum(n)) %>% # take proportion
+  ggplot(aes(fill = DAS28_YN_f, x=DAS28_YN_f, y = prop)) +
+  geom_histogram(stat = "identity") +
+  facet_wrap(.~ AgeGp_f) + # split by age group
+  labs(x = "DAS 28 Measured", y = "Proportion") + 
+  theme_bw() + # background color
+  theme(legend.position = "none") # don't print legend
+```
+
+Description: For both age groups in female RA patients, the proportion of participants who have not measured DAS_28 is higher than those who measured DAS_28 (Age 40-70: 85.8% not measured vs. 14.2% measured; age 70 or above: 95.2% not measured vs. 4.8% measured). This result is similar to the result from overall population.
+The mean age of female RA patients who have not measured DAS_28 is higher than those who have measured DAS_28 (DAS_28 not measured: 61.1 years; DAS_28 measured: 58.5 years; age difference= 2.6 years). 
+
+
+### Male Study Participants
+
+```{r}
+# summary stats
+ra.m %>% group_by(DAS28_YN_f) %>%
+  summarise(n=n(),
+            mean = mean(Age),
+            median = median(Age),
+            min = min(Age),
+            max = max(Age), 
+            q25 = quantile(Age, 0.25),
+            q75 = quantile(Age,0.75),
+            sd = sd(Age)) %>%
+mutate(IQR = q75-q25)
+
+# table with margins
+xtabs(~ DAS28_YN_f + AgeGp_f, data = ra.m) %>% 
+  addmargins() # print row and column sums
+
+# proportion table
+xtabs(~ DAS28_YN_f + AgeGp_f, data = ra.m) %>% 
+  prop.table(margin = 2) # margin = 1 takes proportion within row; margin = 2 takes proportion within column
+
+
+# make some plots
+# bar plot with counts
+ra.m %>% ggplot(aes(x = DAS28_YN_f, fill = DAS28_YN_f)) +
+  facet_wrap(.~ AgeGp_f) + # separate plot per age group
+  geom_histogram(stat = "count") + 
+  labs(x = "DAS 28 Measured") + 
+  theme_bw() +
+  theme(legend.position = "none") # suppress legend
+
+# bar plot with proportion
+ra.m %>% 
+  group_by(AgeGp_f, DAS28_YN_f) %>%
+  tally() %>% # count number in each group
+  mutate(prop = n/sum(n)) %>% # take proportion
+  ggplot(aes(fill = DAS28_YN_f, x=DAS28_YN_f, y = prop)) +
+  geom_histogram(stat = "identity") +
+  facet_wrap(.~ AgeGp_f) + # split by age group
+  labs(x = "DAS 28 Measured", y = "Proportion") + 
+  theme_bw() + # background color
+  theme(legend.position = "none") # don't print legend
+```
+
+Description: For both age groups in male RA patients, the proportion of participants who have not measured DAS_28 is higher than those who measured DAS_28 (Age 40-70: 89.2% not measured vs. 10.8% measured; age 70 or above: 88.9% not measured vs. 11.1% measured). 
+This result is similar to the result from overall population and female population as well.
+The mean age of male RA patients who have not measured DAS_28 is higher than those who have measured DAS_28 (DAS_28 not measured: 60.3 years; DAS_28 measured: 60.1 years; age difference= 0.2 years). 
+
+
+
+# Summary
+
+The RA patients are more likely to be 40-70 of age (86.6%; mean age=60.7) and female (80.8%; n=428).
+Most of the RA patients have not measured DAS_28 (87.5%) and this result differed when stratified by age group.
+When stratified by age group, 86.5% of RA patients aged 40-70 have not measured DAS_28, while 94.4% of RA patients aged 70 or above have not measured DAS_28. Thus, RA patients in the older age group are more likely not to be measured for DAS_28.
+
+The result also differed when further stratified by sex. In female RA patients, those in the older age group were more likely not to be measured for DAS_28 than the younger age group. 85.8% of female patients aged 40-70 and 95.2% of female patients aged 70 or above have not measured DAS_28. 
+However, in male RA patients, those in the younger age group were more likely not to be measured for DAS_28 compared to the older age group. 89.2% of male participants aged 40-70 and 88.9% of male participants aged 70 or above have not measured DAS_28.
+
+According to the results above, it is inappropriate to generalize the trends observed between DAS_28 and the number of years since diagnosis. As DAS_28 shows the severity of RA, it might be positively related to the age of RA patients. However, this does not mean that RA's severity is also positively related to the number of years since diagnosis. Based on our data, the correlation between age and the number of years since diagnosis was only 0.20. 
+Furthermore, as most of the participants were not measured for DAS_28 (most of the participants were missing DAS_28) and the number of missing observations varied by age and sex (the most important risk factors related to RA), we cannot generalize the results of relationship between severity of RA (DAS_28) and the number of years since diagnosis (Yrs_From_Dx) from our data.
+
+
+
+# Session Information
+
+```{r}
+sessionInfo()
+```

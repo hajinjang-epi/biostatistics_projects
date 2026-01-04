@@ -1,0 +1,159 @@
+---
+title: "Surgical Patients CAD and Hypoxia Patterns"
+author: "Hajin Jang"
+date: "12/5/2023"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_depth: '3'
+    code_folding: show
+---
+
+### This analysis uses clinical hypoxia data to test hypotheses about coronary artery disease prevalence and sex differences using proportion tests, and to evaluate the independence between apnea–hypopnea index and intraoperative mean arterial pressure using chi-squared and Fisher’s exact tests.
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+require(knitr)
+knitr::opts_chunk$set(error = T)
+```
+
+```{r, message=FALSE}
+library(tidyverse)
+library(readxl)
+```
+
+
+
+# Data Management
+
+```{r}
+# read in data from excel file
+rm(list = ls())
+hypoxia <- read_xlsx("hypoxia.xlsx")
+head(hypoxia)
+```
+
+
+
+# Part 1: one proportion
+
+```{r}
+# table of counts
+xtabs(~ CAD, data =hypoxia )
+
+# check conditions
+p0 = 0.072
+n = nrow(hypoxia)
+cat("n*p0 = ",n*p0," > 5 : ",n*p0>5 ,"\n")
+cat("n*(1-p0) = ",n*(1-p0)," > 5 : ",n*(1-p0)>5 ,"\n")
+
+# z test
+prop.test(x = 26, n = n, p = p0, alternative = "greater", correct = F)
+```
+
+**Comment:**
+
+1.	Table of CAD counts: 26 participants have CAD out of 281 total participants.
+
+2.	H0: The prevalence of CAD in this population is 7.2%. vs. H1: The prevalence of CAD in this population is greater than 7.2%. 
+
+3.	Conditions: The test conditions are met.
+  - Simple random sample: I assumed that this condition was met.
+  - expected success>=5: np0 = 20.232 >= 5
+  - expected failures>=5: n(1-p0) = 260.768 >= 5
+
+4.	Z test statistic: 1.33 (rooted X-squared)
+5.	P-value: 0.09
+6.	Decision: We fail to reject the null hypothesis based on the alpha level of 0.05.
+7.	Conclusion: We do not have enough evidence to argue that the true population proportion of CAD is greater than 7.2%.
+8.	Interpretation (95% CI): We are 95% confident that the true population proportion of individuals with CAD is between 0.07 and 1.00. This is consistent with the test as 0.072 is included in the interval. Thus, we do not reject the null hypothesis. 
+
+
+
+# Part 2: two proportions
+
+```{r}
+# table of counts
+tbl <- xtabs(~ Female + CAD, data = hypoxia )
+tbl
+
+# check conditions
+
+# z test
+prop.test(x = c(15,11), n = c(80,201), alternative = "two.sided", correct = F)
+
+
+# odds ratio calculation
+tbl <- xtabs(~ Female + CAD , data = hypoxia)
+odds <- fisher.test(tbl)$estimate
+odds
+```
+
+**Comment:**
+
+1.	Table of CAD counts by sex: Among a total 281 participants, 80 participants are male, and 201 participants are female. Among them, 15 males and 11 females have CAD.
+
+2.	H0: The prevalence of CAD between the sexes are not different. vs. H1: The prevalence of CAD between the sexes are different.
+
+3.	Conditions: The test conditions are met.
+  - Simple random sample: I assumed that this condition was met.
+  - Independent pair data: The data is independent pairs. 
+  - Sample numbers: The total number of male and female with and without CAD are all above 10. 
+
+4.	Z test statistic: 3.47 (rooted X-squared with df=1)
+5.	P-value: 0.0005
+6.	Decision: We reject the null hypothesis based on the alpha level of 0.05.
+7.	Conclusion: We have enough evidence to argue that the true population proportion of CAD between sexes is different. 
+8.	Interpretation (95% CI):  We are 95% confident that the true population proportion of individuals with CAD is between 0.04 and 0.22. This is consistent with the test as 0 is not included in the interval. Thus, we reject the null hypothesis with the test result showing a higher proportion in males compared to females.
+
+Odds ratio for having CAD for female participants compared to male participants: 0.25 (CAD is 75% less likely to occur in females compared to males.)
+
+
+
+# Part 3: contingency table
+
+```{r}
+# table of counts
+hypoxia <- hypoxia %>%
+  mutate(highMAP = (`TWA MAP`>=100)*1)
+
+tbl2 <- xtabs(~highMAP + AHI , data = hypoxia )
+tbl2
+
+# check conditions
+Xsq = chisq.test(tbl2,correct = F)
+Xsq$expected
+
+# chi-square test
+chisq.test(tbl2,correct = F)
+
+# fisher's exact test
+fisher.test(tbl2)
+
+```
+
+**Comment:**
+
+1.	Table of high MAP by AHI: Among a total of 278 participants, there are more people with arterial pressure during surgery of less than 100 and an Apnea/Hypoxia Index of 4. Others are shown in the table above. 
+
+2.	H0: The distribution of MAP is independent of AHI. vs. H1: The distribution of MAP is dependent upon AHI.
+
+3.	Conditions: The test conditions are met.
+  - Simple random sample: I assumed that this condition was met. 
+  - Expected count: All group has an expected count of at least 5.
+
+4.	Chi-squared test statistic: 3.84 (df=3)
+5.	P-value: 0.28
+6.	Decision: We fail to reject the null hypothesis based on the alpha level of 0.05.
+7.	Conclusion: We do not have enough evidence to argue that the distribution of MAP is dependent upon AHI.
+
+Fisher’s exact test & p-value: The p-value of Fisher’s exact test is 0.25. Thus, we fail to reject the null hypothesis on the alpha level of 0.05. We do not have enough evidence to argue that the distribution of MAP is dependent upon AHI. This result is consistent with that of the Chi-squared test.
+
+
+
+# Session Information
+
+```{r}
+sessionInfo()
+```

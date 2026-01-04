@@ -1,0 +1,141 @@
+---
+title: "RCT Tumor Size Comparison"
+author: "Hajin Jang"
+date: "11/12/2023"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    number_sections: False
+    toc_depth: '3'
+    code_folding: show
+---
+
+### This code analyzes experimental tumor size data to compare differences across four treatment groups using one-way ANOVA with post hoc comparisons and a Kruskal–Wallis test.
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+require(knitr)
+knitr::opts_chunk$set(error = T)
+```
+
+```{r, message=FALSE}
+library(tidyverse)
+library(car) 
+library(emmeans) 
+```
+
+
+
+# Tumor Growth
+
+## Data Management
+
+```{r}
+# load in the data
+load("tumor_growth.RData")
+
+# add factor variable for treatment labels
+tumor$Treatment <- factor(tumor$Group, levels = c(1, 2, 3, 4), labels = c("Control", "Drug Only", "Radiation Only", "Drug + Radiation"))
+```
+
+
+## Descriptive Statistics
+
+```{r}
+# numerical summary by group
+tumor %>% group_by(Treatment) %>% 
+  summarize(mean = mean(Size, na.rm=TRUE), 
+             SD = sd(Size, na.rm=TRUE), 
+             median = median(Size, na.rm=TRUE), 
+             IQR = quantile(Size, 0.75, na.rm=TRUE)-
+                   quantile(Size, 0.25, na.rm=TRUE),
+             min = min(Size, na.rm=TRUE),
+             max = max(Size, na.rm=TRUE))
+
+# plots
+
+# Boxplot
+tumor %>% ggplot(aes(y = Size, fill = Treatment)) + geom_boxplot() + facet_wrap(.~Treatment)
+
+# Histogram
+tumor %>% ggplot(aes(x = Size, fill = Treatment)) + geom_histogram() + theme_bw() + facet_wrap(.~Treatment)
+```
+
+Description: The mean (sd) of the control, drug only, radiation only, and drug+radiation groups is 2067.3 (309.5), 1787.8 (504.5), 1890.2 (420.9), and 1130.6 (712.2), respectively. The median of each group is 2144.0, 1896.0, 2014.5, and 898.8, respectively. The distribution is similar between the control, drug only, and radiation only groups, except for the drug+radiation group.
+
+
+## ANOVA
+
+```{r}
+# Check conditions
+
+# sample sizes table
+tumor %>% group_by(Treatment) %>% summarize(n = n(), size_mean= mean(Size, na.rm=TRUE), size_sd= sd(Size, na.rm=TRUE))
+
+# qqplots for each group if sample sizes are small
+tumor %>% ggplot(aes(sample = Size)) + geom_qq() + geom_qq_line() + facet_wrap(.~Treatment)
+```
+
+```{r}
+# run anova model
+
+# estimate group means with lm formula
+model <- lm(Size ~ Treatment, data = tumor)
+
+# display ANOVA output
+Anova(model)
+
+
+# multiple-testing correction
+bonf.model <- emmeans(model, pairwise ~ Treatment, adjust = "bonferroni")
+# show each pairwise comparison
+bonf.model$contrasts
+```
+
+Description:
+
+**Hypothesis:** Null = The mean tumor size of all group is the same ; Alternative = At least one of the group has different mean tumor size.
+
+**Conditions for ANOVA:** 1. k independent populations, 2. Random samples from each of the k populations, 3. Large samples or normal populations, and 4. Equal population variances. From the aforementioned conditions, the large sample assumption is explicitly violated. The sample size of the control, drug only, radiation only, and drug+radiation groups is 8, 10, 10, and 9, respectively. Instead, according to the qq-plot, all four groups are normally distributed. Thus, we can conclude that there is no violation of the assumption for ANOVA analysis from the given information.
+
+**P-value, decision, and conclusion:** F-value is 5.65 and the p-value is 0.003 which is smaller than the alpha level of 0.05. Thus, we have evidence to reject the null hypothesis. In conclusion, at least one of the groups has a different mean tumor size.
+
+**Post-hoc pairwise comparisons:** According to the post-hoc pairwise treatment comparison, there was a significant difference between the control vs. drug+radiation group (p-value=0.004), and between the radiation only vs. drug+radiation group (p-value=0.02). 
+
+
+**Summary:** To compare the tumor size between the different treatment groups, we conducted an ANOVA analysis between the control, drug only, radiation only, and drug+radiation groups. From the results, we could conclude that the group that used both drug and radiation treatment showed the largest protective effect compared to the control. Additionally, the group that used both drug and radiation treatment showed a significant improvement in tumor size compared to the radiation only group as well. Thus, it is recommended to adopt treatment that includes both drug and radiation, rather than applying radiation or drug only. 
+
+
+## Kruskal-Wallis
+
+```{r}
+# check conditions
+tumor %>%
+  ggplot(aes(x = Size)) +
+  geom_histogram(color="black", fill="gray") + 
+  facet_wrap(. ~ Treatment, nrow = 4) + 
+  theme_classic() + 
+  labs(x = "Tumor size (mm^3)")
+
+# run test
+kruskal.test(Size ~ Treatment, data = tumor)
+```
+
+Description: 
+
+**Hypothesis:** Null = The median tumor size of all groups is the same; Alternative = At least one of the groups has a different median tumor size.
+
+**Conditions for Kruskal-Wallis test:** 1. k independent populations, 2. Random samples from each of the k populations, and 3. Population distributions have the same shape. The shape of the population distributions was seemingly different, but I proceeded with the analysis to produce a result that can be compared with that of the ANOVA.
+
+**P-value, decision, and conclusion:** The Kruskal-Wallis chi-squared value is 9.5212 in df = 3. The p-value is 0.02, which is smaller than the alpha level of 0.05. Thus, we have evidence to reject the null hypothesis. In conclusion, at least one of the groups has a different median tumor size. 
+
+**Agreement with an ANOVA result:** The result is consistent with the ANOVA test. 
+
+
+
+# Session Information
+
+```{r}
+sessionInfo()
+```
