@@ -1,0 +1,246 @@
+---
+title: "Toluene Exposure and Blood Concentration"
+author: "Hajin Jang"
+date: "2/12/2024"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_depth: '3'
+    code_folding: show
+---
+
+### This code was written to analyze the relationship between inhaled toluene exposure and blood toluene concentration in rats using visualization, regression modeling, diagnostic assessment, and robustness checks.
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+require(knitr)
+knitr::opts_chunk$set(error = T)
+```
+
+```{r, message=FALSE}
+library(tidyverse) 
+library(psych) 
+library(car) 
+library(MASS) 
+library(dplyr)
+library(skimr)
+library(sfsmisc)
+```
+
+
+
+# Data Management
+
+The following data come from a study of the impacts of toluene exposure through inhalation on toluene concentration in the blood. In the study, 60 rats were exposed to differing levels of toluene inhalation, from 11.34 to 1744.7 parts per million (ppm) (newppm) for a duration of 3 hours. Blood levels were measured (bloodtol) following exposure measured in mg/L. Other variables measured were weight in grams (weight), age in days (age), and snout size as either short (snoutsize=1) or long (snoutsize=2).
+
+We will use these data to model the relationship between toluene exposure and blood concentration, adjusting for other variables.
+
+```{r}
+# read in data (csv file)
+toluene <- read.csv("toluene.csv")
+toluene = toluene %>% mutate(snoutsize_f = factor(snoutsize, levels = c(1, 2), labels = c("short", "long")))
+```
+
+
+
+# Part 1) Visualize data
+
+__Calculating some descriptive statistics and displaying some plots to learn about the data.__
+
+```{r}
+# quick look at the data
+skimr::skim(toluene)
+
+# plot pairs of variables
+pairs.panels(toluene[,c("bloodtol","weight","age","newppm","snoutsize")],
+             ellipses = F, density = F, hist.col = "deepskyblue")
+
+# scatterplot matrix
+scatterplotMatrix(~bloodtol+weight+age+newppm+snoutsize, data=toluene, smooth=F)
+```
+
+**Comment:** There are total 60 observations (rats) and 7 variables in the data. There are 1 factor and 6 numeric variables. There is no missing data in all of the variables. 
+The mean (sd) of the variables is as follows:
+toluene in blood (mg/L) = 11.00 (12.62)
+weight (g) = 380.55 (72.71)
+age (days) = 83.40 (5.70)
+toluene exposure (ppm) = 292.48 (311.99)
+snout size = 45 of long snout and 15 of short snout.
+According to the correlation plots, toluene exposure and toluene blood seems to have strong positive correlation (r=0.87).
+
+
+
+# Part 2) SLR
+
+__Fitting a regression model for blood toluene (bloodtol) that contains only toluene exposure (newppm) as a predictor; performing a graphical analysis to assess the linearity, equal variance, and normality assumptions of linear regression.__
+
+```{r}
+# fit slr model
+fit1 <- lm(bloodtol ~ newppm, data=toluene)
+summary(fit1)
+
+# plot residual vs fitted and residual qq-plot
+raw_resid = residuals(fit1)
+head(raw_resid)
+
+stand_resid = rstandard(fit1)
+head(stand_resid)
+
+jack_resid = rstudent(fit1)
+head(jack_resid)
+
+# residual vs. fitted. values
+resid_fitted <- plot(fit1, which=1)
+
+# residual qq plot
+resid_qq <- plot(fit1, which=2)
+
+# histogram of residuals
+resid_hist <- hist(fit1$residuals)
+```
+
+**Interpretation:** According to the Residuals vs. Fitted plot, the linearity and equal variance assumption seemed to be fine while normality assumption was violated. The plot showed linear distribution of fitted values and residuals. There is no specific fanning/funnel shape, so the equal variance assumption is not violated. However, the qq-plot showed right-skewed distribution rather than the normal distribution.
+
+
+
+# Part 3) MLR
+
+__Adding covariates to the model.__
+
+```{r}
+fit2 <- lm(bloodtol ~ newppm + weight + age + snoutsize_f, data=toluene)
+summary(fit2)
+```
+
+```{r}
+avPlots(fit2)
+crPlots(fit2)
+
+# model with interactions included
+fit3 <- lm(bloodtol ~ newppm + weight + age + snoutsize_f + newppm*weight + newppm*age + newppm*snoutsize_f, data=toluene)
+summary(fit3)
+
+# test if the interactions are useful
+anova(fit2, fit3)
+```
+
+**Comment:** In the full model without interaction, newppm and age were significantly associated with bloodtol. The R-squared was 77.5% and the adjusted R-squared was 75.9%. However, there were no significant interactions between toluene exposure with age, weight, and snout size. In the anova test, the model including interaction did not show better performance. 
+
+
+
+# Part 4) Collinearity
+
+__Checking for collinearity between the 4 covariates (exposure, age, weight, snout size).__
+
+```{r}
+# measure of collinearity in the model involving exposure, weight, age, and snout size
+fit2_col <- vif(fit2)
+fit2_col
+```
+
+**Interpretation:** The vifs are not high and none of the vif exceeded 4. Thus, the collinearity does not affect our statistical inference.
+
+
+
+# Part 5) Choose a Model
+
+__Determine the best model.__
+
+```{r}
+# residual vs. fitted. values
+resid_fitted <- plot(fit2, which=1)
+
+# residual qq plot
+resid_qq <- plot(fit2, which=2)
+
+# histogram of residuals
+resid_hist <- hist(fit2$residuals)
+```
+
+**Comment:** I would choose a model including newppm, age, weight, and snout size as predictors. Even though weight and snout size were not statistically significant in the model, based on the background information and knowledge, all the covariates were considered to be important confounders, thus I determined to include all covariates.
+According to the residuals vs. fitted values plot, the linear regression and equal variance assumptions are met. However, according to the qq-plot, the distribution was not normal. Thus, normality assumption would be the most important thing to concern.
+
+
+
+# Part 6) Identifying Influential or Outlier Points
+
+__Identifying poorly fit, high leverage points, and/or influential points in the final model.__ 
+```{r}
+# the influence index plotting functions
+hatvalues(fit2)
+
+influenceIndexPlot(fit2, "hat", id = list(n=5))
+avPlots(fit2, id=list(method=list(hatvalues(fit2)), n=5, cex=1, col=carPalette()[3], location="lr"))
+
+# average hat value
+(length(fit2$coefficients))/nrow(fit2$model)
+
+# 2(p+1)/n
+thresh2 = 2*(length(fit2$coefficients))/nrow(fit2$model)
+thresh2
+
+# 3(p+1)/n
+thresh3 = 3*(length(fit2$coefficients))/nrow(fit2$model)
+thresh3
+
+# point with leverage >3(p+1)/n
+which(hatvalues(fit2)>thresh3) %>% unname()
+
+influenceIndexPlot(fit2,id=list(n=3))
+```
+
+**Comment:** I chose points with leverage >3(p+1)/n. Points 11, 37, and 60 are high leverage based on hat-values.
+
+
+
+# Part 7) Sensitivity to Outliers/Influential Points
+
+__Performing a sensitivity analysis by refitting the model excluding the troublesome points in part 6.__
+ 
+```{r}
+# fit model removing outlier/influential points
+fit5 <- lm(bloodtol ~ newppm + weight + age + snoutsize_f, data=toluene %>% slice(-c(11,37,60)))
+
+# compare the two models
+summary(fit5)
+
+#compare to original model
+summary(fit2)
+```
+
+**Comment:** The model was not sensitive to the troublesome points. There was no dramatic change in the coefficient estimates and statistical inference before and after excluding those points. The coefficient estimate of newppm was 0.033114 before exclusion, and 0.032790 after the exclusion.
+ 
+
+
+# Part 8)	Robust Regression
+
+__Fitting a robust regression using the model from part 5 and compare the two models.__
+
+```{r}
+# fit robust regression model
+fit2_robust <- rlm(bloodtol ~ newppm + weight + age + snoutsize_f, data=toluene)
+
+summary(fit2_robust)
+f.robftest(fit2_robust)
+```
+
+**Comment:** The coefficient estimate of newppm was larger in the robust model. it was 0.033114 in the original model and 0.0358 in the robust model. The F value was 47.32 in the original model while it was 134.62 in the robust model. According to the F test of robust regression model, the robust model showed better fit with higher F value. Considering the advantage of using robust model (less sensitive to outliers) and its better fit with higher F value, the robust model is more appropriate. 
+
+
+
+# Part 9) Summary
+
+In this analysis, we examined association of toluene exposure with toluene concentration in the blood, adjusting for covariates including weight, age, and snout size.
+We found that after adjusting for potential confounders, there was a strong positive association between toluene exposure in ppm and toluene in blood (mg/L). Every 1 ppm increase in toluene exposure was associated with 0.033 increase in toluene concentration in the blood, holding all other variables constant. 
+We did not find multicollinearity between the exposure, weight, age, or snout size.
+Our results changed slightly when outlier points were dropped in a sensitivity analysis. The association slightly attenuated but the strong association between toluene exposure and blood toluene concentration remained persistent.
+When robust model was used, 1-ppm increase in toluene exposure was associated with 0.036 increase in blood toluene. Thus, the strong positive association betwen toluene exposure and blood toluene concentration stayed valid in the robust model as well.
+
+
+
+```{r}
+
+sessionInfo()
+
+```

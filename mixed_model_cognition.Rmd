@@ -1,0 +1,226 @@
+---
+title: "mixed_effects_cognition"
+author: "Hajin Jang"
+date: "2025-10-02"
+output:
+  html_document:
+    toc: true
+    toc_float: False
+    number_sections: False
+---
+
+### This analysis explored how cognitive test scores change over time in older adults, focusing on whether longitudinal trajectories and rates of change differ between men and women.
+
+## About the data
+
+This analysis used longitudinal data from 1,615 cognitively healthy older adults with annual cognitive assessments over up to 9 years to examine sex-specific patterns of cognitive change. Individual trajectories and mean trends were evaluated, followed by quadratic linear mixed-effects models incorporating time, sex, and their interaction, with random intercept and random slope structures compared. The goal was to characterize nonlinear cognitive trajectories, assess differences in rates of change between men and women, and identify an appropriate variance structure for the data.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Data cleaning
+
+```{r}
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(lme4)
+library(nlme)
+
+cognition <- read_csv("cognition.csv")
+
+summary(is.na(cognition))
+
+cognition <- cognition %>%
+  mutate(sexf = factor(sexf, levels = c(0,1), labels = c("male", "female")))
+
+table(cognition$sexf)
+str(cognition)
+```
+
+
+## Q1. Plotting the individual score trajectories over time stratified by sex
+
+```{r}
+cognition %>%
+  ggplot2::ggplot(aes(x = t, y = score)) + 
+  ggplot2::geom_point(aes(group = studyid), alpha = 0.15) +  # Plot points for individual data
+  ggplot2::geom_line(aes(group = studyid), alpha = 0.4) +  # Plot individual lines
+  ggplot2::geom_smooth(method = 'lm', formula = y ~ x, se = FALSE, color = "blue") +  # Linear trend
+  ggplot2::facet_wrap(.~sexf) +  # Facet by sex
+  ggplot2::theme_classic() +
+  ggplot2::labs(title = "Cognitive Score Trajectories by Sex", 
+                x = "Follow-up Year", 
+                y = "Cognitive Score", 
+                subtitle = "Individual Trajectories (black) and Sex-Specific Trends (blue)") +
+  ggplot2::theme(strip.text = element_text(size = 12))  # Adjust facet label size
+```
+
+**Individual trajectories:** Both male and female participants show a broad range of cognitive performance patterns over time. The denser clustering of trajectories in the higher score range for both sexes suggests that most participants maintain high levels of cognitive function. Among females, the trajectories appear more concentrated and darker in color, reflecting a greater number of female participants in the sample, which is consistent with their larger proportion in the cohort.
+
+**Sex-specific trend:** The blue trend lines, representing the sex-specific average cognitive trajectories, show a slight positive trend over time for both males and females. While the trends are generally similar, there are some differences. The line for males appears to have a slightly lower intercept, indicating that men may start with lower cognitive scores on average at baseline compared to women. Additionally, the male trend line seems to have a steeper slope, suggesting that males might experience a slightly faster rate of cognitive improvement over time, though the difference is little.
+
+
+## Quadratic polynomial linear mixed models
+
+#### Fitting random intercept & slope models 
+
+```{r}
+cognition <- cognition %>%
+  mutate(t2 = t^2)
+
+# model with random intercept only
+quad.ri.mle <- lmer(score ~ t + t2 + sexf + t*sexf + (1|studyid), data = cognition, REML = F)
+quad.ri.reml <- lmer(score ~ t + t2 + sexf + t*sexf + (1|studyid), data = cognition, REML = T)
+summary(quad.ri.mle); summary(quad.ri.reml)
+
+# model with random slope 
+quad.rs.mle <- lmer(score ~ t + t2 + sexf + t*sexf + (t|studyid), data = cognition, REML = F)
+quad.rs.reml <- lmer(score ~ t + t2 + sexf + t*sexf + (t|studyid), data = cognition, REML = T)
+summary(quad.rs.mle); summary(quad.rs.reml)
+```
+
+
+#### Random slope model justification
+
+```{r}
+# LR test for random slope vs. random intercept
+anova(quad.ri.reml, quad.rs.reml, refit = F)
+```
+
+**Comment:** An LR test was conducted to compare the random intercept model with the random slope model. The p-value was <0.05, indicating a significant difference between the two models. Therefore, the random slope model is preferred for this dataset.
+
+
+#### Effect of time by sex
+
+```{r}
+summary(quad.rs.mle)
+```
+
+**Comment:** In the MLE model, the absolute value of the t-value for the interaction term exceeds 1.96, suggesting that the null hypothesis should be rejected. This indicates a significant difference in the effect of time on test scores between sexes. The negative estimate for the interaction term implies that the rate of increase in test scores over time is slower for females compared to males. Specifically, the effect of time on test scores is reduced by 0.02671 units for females relative to males.
+
+
+#### Plotting the fitted test scores, averaged across all subjects, from the quadratic time trend model by sex
+
+```{r}
+# individual trajectories
+pred <- cognition %>% 
+  mutate(yhat = predict(quad.rs.mle))
+
+# fitted mean test scores from the quadratic time trend model by sex
+pred %>% 
+  ggplot2::ggplot(aes(x = t, y = yhat)) + 
+  ggplot2::geom_point(aes(group = studyid), alpha = 0.15) +  # Plot points for individual data
+  ggplot2::geom_line(aes(group = studyid), alpha = 0.4) + 
+  ggplot2::geom_smooth(se = FALSE, color = "blue") +
+  ggplot2::facet_wrap(.~sexf) + 
+  ggplot2::theme_classic() +
+  ggplot2::labs(title = "Fitted Mean Cognitive Score Trajectories by Sex", 
+                x = "Follow-up Year", 
+                y = "Fitted Cognitive Score", 
+                subtitle = "Individual Trajectories (black) and Sex-Specific Trends (blue)") +
+  ggplot2::theme(strip.text = element_text(size = 12))  # Adjust facet label size
+
+
+# observed mean test score from the quadratic time trend model by sex
+pred %>% 
+  ggplot2::ggplot(aes(x = t, y = score)) + 
+  ggplot2::geom_point(aes(group = studyid), alpha = 0.15) +  # Plot points for individual data
+  ggplot2::geom_line(aes(group = studyid), alpha = 0.4) + 
+  ggplot2::geom_smooth(se = FALSE, color = "blue") +
+  ggplot2::facet_wrap(.~sexf) + 
+  ggplot2::theme_classic() +
+  ggplot2::labs(title = "Observed Mean Cognitive Score Trajectories by Sex", 
+                x = "Follow-up Year", 
+                y = "Observed Cognitive Score", 
+                subtitle = "Individual Trajectories (black) and Sex-Specific Trends (blue)") +
+  ggplot2::theme(strip.text = element_text(size = 12))  # Adjust facet label size
+```
+
+**Comment:**
+The fitted model smooths out the individual trajectories relative to the more variable and noisy observed data, which reflect natural individual differences.
+Compared to the plot in Question 1, the model captures an overall quadratic trend that slightly diverges from the flatter observed trajectories, particularly in the later time points.
+
+
+## Q3. Checking heteroskedasticity
+
+#### Residual error terms with respect to the sex variable
+
+  * $Var(\epsilon_{ij})\mid \text{male}) = \sigma_{\epsilon_m}^2$ 
+
+  * $Var(\epsilon_{ij})\mid \text{female}) = \sigma_{\epsilon_f}^2$
+  
+$H_0 :\sigma_{\epsilon_m}^2 =  \sigma_{\epsilon_f}^2$ homoscedastic residuals between males and females
+
+$H_1 : \sigma_{\epsilon_m}^2 \neq  \sigma_{\epsilon_f}^2$ heteroskedastic residuals between males and females
+
+
+
+```{r}
+# heteroscedastic residual model
+# ML for fixed effects estimation
+quad.rs.hetsc.mle = nlme::lme(fixed = score ~ t + t2 + sexf + t*sexf, data = cognition, 
+                              random = list(studyid = ~ 1 + t), weights = varIdent(form = ~ 1 | sexf), 
+                                   method = "ML")
+
+# REML for variance component estimation
+quad.rs.hetsc.reml = nlme::lme(fixed = score ~ t + t2 + sexf + t*sexf, data = cognition, 
+                                    random = list(studyid = ~ 1 + t), weights = varIdent(form = ~ 1 | sexf), 
+                                    method = "REML")
+
+summary(quad.rs.hetsc.mle); summary(quad.rs.hetsc.reml)
+
+# homoscedastic residual model
+quad.rs.homsc.reml = nlme::lme(fixed =  score ~ t + t2 + sexf + t*sexf, data = cognition,
+                                    random = list(studyid = ~ 1 + t), method = "REML")
+summary(quad.rs.homsc.reml)
+
+# LR test
+anova(quad.rs.homsc.reml, quad.rs.hetsc.reml)
+```
+
+**Comment:** The p-value from the likelihood ratio test is 0.206, which is greater than 0.05. This suggests that we fail to reject the null hypothesis and that there is no strong evidence against the assumption of homoscedastic residual variances.
+
+
+#### Random effect(s) with respect to the sex variable
+
+$H_0: \Sigma_{v_m} = \Sigma_{v_f}$ homoscedastic random effects between males and females
+
+$H_1: \Sigma_{v_m} \neq \Sigma_{v_f}$ heteroskedastic random effects between males and females
+
+
+```{r}
+# create dummy variables
+cognition <- cognition %>% 
+  mutate(female = as.numeric(sexf)-1,         # female is 1 when sexf = 1
+         male = (female - 1)*-1,            # male is 1 when sexf = 0
+         t.female = t*female,           # interaction term for female and t
+         t.male = t*male)               # interaction term for male and t
+
+# heteroscedastic random effects model
+quad.rs.hetscRE.reml = lme4::lmer(formula =  score ~ t + t2 + sexf + t*sexf + 
+                                         (-1 + female + t.female | studyid) + 
+                                         (-1 + male + t.male | studyid), 
+                                       data = cognition, REML = T)
+
+summary(quad.rs.hetscRE.reml)
+
+# LR test
+anova(quad.rs.reml, quad.rs.hetscRE.reml, refit=F)
+```
+
+**Comment:** The p-value from the likelihood ratio test is 0.0005, which is well below 0.05. This indicates that the null hypothesis should be rejected, providing strong evidence for differences in random effects between males and females.
+
+
+## Summary
+
+**The best-fitting model is the random slope model with a quadratic time trend, an interaction between time and sex, and heteroskedastic random effects by sex (quad.rs.hetscRE).**
+
+We first compared a random intercept model and a random slope model, both including fixed effects for a quadratic time trend (time and time squared), sex, and the interaction between time and sex. The likelihood ratio test showed that the random slope model provided a significantly better fit (p < 0.05).
+
+We then examined potential heteroskedasticity in the residuals and random effects. The LR test for heteroskedastic residuals was not significant, indicating no strong evidence for differences in residual variance. However, the test for heteroskedastic random effects was significant.
+
+Based on these results, we selected the final model, which allows for separate random intercepts and slopes for males and females, capturing sex-specific variability in cognitive trajectories over time.

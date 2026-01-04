@@ -1,0 +1,175 @@
+---
+title: "hierarchical_mixed_bariatric_surgery"
+author: "Hajin Jang"
+date: "2025-12-02"
+output:
+  html_document:
+    toc: true
+    toc_float: False
+    number_sections: False
+---
+
+### This analysis examined longitudinal changes in kidney function after bariatric surgery and compared whether improvements in eGFR differed between Roux-en-Y gastric bypass and laparoscopic adjustable gastric band procedures.
+
+
+## About the data
+
+The analysis used observational cohort data from adults who underwent first-time bariatric surgery at multiple U.S. clinical sites and were followed for up to 36 months with repeated eGFR measurements. Surgery type, visit time, age, and time-varying household income were included as key variables. Three-level hierarchical mixed-effects models were applied to account for repeated measures within individuals and clustering by clinical site, with the goal of comparing surgery-specific eGFR trajectories over time and quantifying sources of variability in kidney function. 
+
+
+## Mean trajectory plot of eGFR over time for each surgery type
+
+```{r}
+library(readr)
+library(ggplot2)
+library(lme4)
+library(dplyr)
+
+egfr <- read_csv("egfr.csv")
+
+summary(egfr)
+
+egfr$site<- as.factor(egfr$site)
+egfr$surgery<- as.factor(egfr$surgery)
+egfr$income3<- as.factor(egfr$income3)
+
+mean_egfr <- egfr %>%
+  group_by(surgery, time) %>%
+  summarize(mean_egfr = mean(egfr, na.rm = TRUE))
+
+mean_egfr$surgery <- factor(mean_egfr$surgery, labels = c("RYGB", "LAGB"))
+
+ggplot(mean_egfr, aes(x = time, y = mean_egfr, color = surgery)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  labs(title = "Mean eGFR Trajectory by Surgery Type",
+       x = "Time (Months)",
+       y = "Mean eGFR",
+       color = "Surgery Type") +
+  theme_minimal()
+```
+
+**Comment:**
+The mean eGFR trajectory differed between the two surgery types. Both RYGB and LAGB showed increases in mean eGFR after surgery, but the magnitude and pattern of improvement were not the same.
+For RYGB, the mean eGFR rose sharply from baseline to 12 months, continued to increase slightly by 24 months, and then declined by 36 months, though it remained above baseline. This indicates a more pronounced early improvement followed by partial attenuation.
+For LAGB, the trajectory also increased over time but with a smaller overall gain. Mean eGFR rose steadily from baseline to 24 months, then declined by 36 months, ultimately showing less improvement than RYGB. By 36 months, mean eGFR in the LAGB group decreased and returned to approximately the baseline level.
+Overall, RYGB showed a larger and more rapid improvement in mean eGFR over time compared with LAGB.
+
+
+## Mixed-effects models
+
+#### Three-level hierarchical mixed model
+
+* Level 3 variance $\sigma^2_{\upsilon(i)}$: between-site variance
+* Level 2 variance $\sigma^2_{\upsilon(j|i)}$: between-subject variance
+* Level 1 variance $\sigma^2_{\epsilon}$: between-occasion variance
+
+
+$eGFR_{ijk} = \beta_0 + \beta_1surgery_{ij} + \beta_2time_{ijk} + \beta_3age_{ij} + \beta_4income_{ijk} + \beta_5surgery_{ij} \times time_{ijk} + \upsilon_{0i} + \upsilon_{0j|i} + \epsilon_{ijk}$
+
+(Where: i = site, j = subject, and k = measurement occasion)
+
+
+**Fixed effect:** surgery, time, age, income, surgery*time
+
+Justification: 
+
+* surgery type = primary exposure
+
+* time = kidney function changes over follow-up
+
+* surgery×time interaction = primary scientific question: “Does the rate of improvement differ by surgery type?”
+
+* age = baseline confounder
+
+* income (time-varying) = socioeconomic status may influence post-operative kidney outcomes
+
+
+**Random effect:** 
+
+* Site-Level Random Intercept: $\upsilon_{0i}$
+
+Justification: A site-level random intercept accounts for differences across sites, helping ensure that site-related variation does not confound the fixed effects.
+
+* Subject-Within-Site Random Intercept: $\upsilon_{0j|i}$
+
+Justification: Accounts for between-subject heterogeneity within site and induces within-person correlation across repeated measures.
+
+* Residual Error: $\epsilon_{ijk}$
+
+Justification: Represents within-occasion noise after removing site- and subject-level variation.
+
+
+#### Fit the model
+
+```{r}
+egfr.ml<- lmer(egfr ~ surgery + time + age + income3 + surgery:time + (1|site) + (1|site:subject),  data = egfr, REML = FALSE)
+egfr.reml<- lmer(egfr ~ surgery + time + age + income3 + surgery:time + (1|site) + (1|site:subject),  data = egfr, REML = TRUE)
+
+summary(egfr.ml)
+summary(egfr.reml)
+```
+
+**Comment:** 
+The mixed effects model showed that mean eGFR increased significantly over time after bariatric surgery. For patients who received RYGB, the average rate of improvement was about 0.20 eGFR units per month, which translates into roughly 7 to 8 units of improvement over the 36 month follow up period. The interaction between surgery type and time was also statistically significant. This indicates that the pattern of improvement differed between the two procedures. Patients who underwent RYGB showed faster improvement over time, while patients who received LAGB experienced a slower increase in eGFR. Based on the model estimates, the monthly increase was about 0.20 units for RYGB and about 0.05 units for LAGB, which shows a clear advantage of RYGB for long term kidney function recovery.
+
+The main effect of surgery type was not statistically significant, meaning that baseline eGFR was similar between the two surgery groups. Age was strongly associated with eGFR, and older participants had lower kidney function after adjusting for the other variables. Higher income levels were associated with higher eGFR, suggesting that participants with more socioeconomic resources tended to have better kidney function. The estimated variance for clinical sites was extremely small, which indicates that differences between sites contributed very little to the overall variation in eGFR. Most of the variability occurred between individual participants within each site rather than between sites.
+
+
+#### Variation in eGFR attributable to site variability
+
+```{r}
+# From the above output
+var_site <- 1.831
+var_subject <- 266.434
+var_residual <- 75.287
+
+# Total variance
+varTOT<- var_site + var_subject + var_residual
+
+# Proportions
+ICC_site <- var_site / varTOT
+ICC_subject <- var_subject / varTOT
+
+list(
+  TotalVariance = varTOT,
+  SiteProportion = ICC_site,
+  SubjectWithinSiteProportion = ICC_subject
+)
+```
+
+**Comment:**
+The total variance in eGFR was 343.552. Only 0.53% of this variation was explained by differences between clinical sites, which indicates that site-level variability was extremely small. In contrast, 77.60% of the total variation was due to differences between individual subjects within sites, showing that person-to-person variability was the dominant source of variation in eGFR. The remaining 21.90% of the variability was due to residual within-subject variation across repeated measurements.
+
+
+## Between-subject within-site variance
+
+**Hypothesis:**
+
+* H0: The subject within site variance equals 0
+* H1: The subject within site variance is greater than 0
+
+```{r}
+egfr.full.ml <- lmer(egfr ~ surgery + time + age + income3 + surgery:time +
+                     (1 | site) + (1 | site:subject),
+                     data = egfr, REML = FALSE)
+
+egfr.reduced.ml <- lmer(egfr ~ surgery + time + age + income3 + surgery:time +
+                        (1 | site),
+                        data = egfr, REML = FALSE)
+
+anova(egfr.reduced.ml, egfr.full.ml)
+```
+
+**Comment:**
+We compared the full model with a subject within site random intercept to a reduced model without this random effect, using a likelihood ratio test. The test statistic was 589.62 with 1 degree of freedom and the p value was far below 0.001. This provides very strong evidence that the subject within site variance is greater than zero, so we reject the null hypothesis that this variance equals zero.
+
+
+## Model decision & justification
+
+The results from the earlier questions indicate that the site level variance was extremely small, showing that differences between sites contributed very little to the total variation in eGFR. In contrast, the subject within site variance was large and clearly different from zero, which means that most of the clustering in eGFR occurs at the individual level rather than at the site level.
+
+Based on this evidence, I would remove the site level random intercept from the original model. Removing this term simplifies the model and improves interpretability while still retaining the subject level random effect that is important for capturing the correlation among repeated measurements. The fixed effects remain unchanged, so the model continues to address the main scientific questions regarding change in eGFR over time and differences by surgery type.
+
+
+

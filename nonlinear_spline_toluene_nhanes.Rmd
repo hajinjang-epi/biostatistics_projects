@@ -1,0 +1,398 @@
+---
+title: "Nonlinear Spline Toluene & NHANES"
+author: "Hajin Jang"
+date: "2/24/2024"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_depth: '3'
+    code_folding: show
+---
+
+### This project explores non-linear relationships and model selection strategies using spline-based regression, diagnostics, and cross-validation, applied to both experimental toluene data and NHANES data.
+
+
+```{r,echo=FALSE,message=FALSE,warning=FALSE}
+require(knitr)
+knitr::opts_chunk$set(error = T)
+```
+
+```{r}
+library(tidyverse)
+library(here)
+library(car)
+library(psych)
+library(MASS)
+library(lspline)
+library(splines)
+library(readxl)
+library(glmnet)
+library(olsrr)
+```
+
+
+
+# Part 1: Blood Toluene
+
+## Data Management
+
+The following data come from a study of the impacts of toluene exposure through inhalation on toluene concentration in the blood. In the study, 60 rats were exposed to differing levels of toluene inhalation, from 11.34 to 1744.7 parts per million (ppm) (newppm) for a duration of 3 hours. Blood levels were measured (bloodtol) following exposure measured in mg/L. Other variables measured were weight in grams (weight), age in days (age), and snout size as either short (snoutsize=1) or long (snoutsize=2).
+
+```{r}
+# read in data
+toluene <- read.csv("toluene.csv")
+toluene = toluene %>% mutate(snoutsize_f = factor(snoutsize, levels = c(1, 2), labels = c("short", "long")))
+```
+
+
+## 1. SLR model
+
+__Fitting a simple linear model with bloodtol as the dependent variable and newppm as the independent variable.__
+
+```{r}
+# linear model
+fit <- lm(bloodtol ~ newppm, data=toluene)
+summary(fit)
+
+# C+R plot
+crPlots(fit, ylab = "C+R")
+```
+
+**Comment:** Points from the C+R plot are clustered in the 0 to 100 newppm, meaning that the relationship of newppm with bloodtol is not linear.
+
+
+## 2. LOESS curve
+
+__Fitting a LOESS curve over the scatterplot of blood toluene on toluene exposure.__
+
+```{r}
+# loess curve plot
+toluene %>%
+  ggplot(aes(x = newppm, y = bloodtol)) + 
+  theme_bw() + 
+  geom_point() + 
+  geom_smooth(method = "loess", span = .5) +
+  labs(x = "Toluene eposure in ppm", y = "Toluene in blood (mg/L)") + 
+  theme(legend.position = "none")
+
+toluene %>%
+  ggplot(aes(x = newppm, y = bloodtol)) + 
+  theme_bw() + 
+  geom_point() + 
+  geom_smooth(method = "loess", span = .75) +
+  labs(x = "Toluene eposure in ppm", y = "Toluene in blood (mg/L)") + 
+  theme(legend.position = "none")
+
+toluene %>%
+  ggplot(aes(x = newppm, y = bloodtol)) + 
+  theme_bw() + 
+  geom_point() + 
+  geom_smooth(method = "loess", span = 2) +
+  labs(x = "Toluene eposure in ppm", y = "Toluene in blood (mg/L)") + 
+  theme(legend.position = "none")
+```
+
+**Comment:** The plots showed an overall positive association between toluene exposure and blood toluene. As the span increases, the plots become smoother. This is because using a larger neighborhood would yield a smoother curve while using a smaller neighborhood would yield a choppier curve. 
+
+
+## 3. Linear spline model
+
+__Fitting a model with linear splines using knots at newppm values of 125, 375, and 625.__
+
+```{r}
+# linear spline plot
+spline.lin.t = lm(bloodtol ~ lspline(newppm, knots = c(125, 375, 625),marginal = T), data = toluene)
+
+toluene %>%
+  mutate(pred = predict(spline.lin.t)) %>%
+  ggplot(aes(x = newppm, y = bloodtol)) + 
+  theme_bw() + 
+  geom_point() +
+  labs(y = "Toluene in blood (mg/L)", 
+       x = "Toluene exposure in ppm",
+       title = "Linear Spline Model") + 
+  geom_smooth(method = "lm",
+              formula = y ~ lspline(x, knots = c(125, 375, 625),marginal = T))
+
+# show output
+summary(spline.lin.t)
+```
+
+
+## 4. Marginal vs not marginal splines
+
+__Fitting a second model without marginal coefficients.__
+
+```{r}
+# linear splines without marginal = T (with marginal = F)
+spline.lin.f = lm(bloodtol ~ lspline(newppm, knots = c(125, 375, 625),marginal = F), data = toluene)
+
+toluene %>%
+  mutate(pred = predict(spline.lin.f)) %>%
+  ggplot(aes(x = newppm, y = bloodtol)) + 
+  theme_bw() + 
+  geom_point() +
+  labs(y = "Toluene in blood (mg/L)", 
+       x = "Toluene exposure in ppm",
+       title = "Linear Spline Model") + 
+  geom_smooth(method = "lm",
+              formula = y ~ lspline(x, knots = c(125, 375, 625),marginal = F))
+
+# show output
+summary(spline.lin.f)
+```
+
+**Comparison:** The intercept and the slope for the first interval of the spline is the same. In the marginal coefficients results, the estimate for the slope in each interval is given compared to the slope of the previous interval, while in the non-marginal coefficient group, the slope for each interval is given regardless of comparison with the slope of the previous interval. Thus, the slopes after the 1st, 2nd, and 3rd knots are different between marginal coefficients vs. non-marginal coefficients. For example, the 2nd spline term is positive when marginal values were not used, but it was netagive when marginal values were used.
+
+
+## 5. Natural splines
+
+__Fitting a model with natural splines with 4 knots.__
+
+```{r}
+# natural spline plot
+natural.lin <- lm(bloodtol ~ ns(newppm, df=5), data=toluene)
+
+toluene %>%
+  ggplot(aes(x = newppm, y = bloodtol)) + 
+  theme_bw() + 
+  geom_point() +
+  labs(y = "Toluene in blood (mg/L)", 
+       x = "Toluene exposure in ppm",
+       title = "Natural Spline Model",
+       subtitle = "4 knots") +
+  geom_smooth(method = "lm",
+              formula = y ~ ns(x,df = 5))
+
+# model output
+summary(natural.lin)
+```
+
+**Comment:** The fit of this model represents the distribution of observations very well when visually inspected. The spline appears to be robust in fitting the observations and captures the overall shape of the distribution. Outliers have minimal impact on the fit.
+
+
+## 6. Residual plots for the models fit so far
+
+__Residual plots for each of the models__
+
+```{r}
+# plots for linear model
+# residual vs. fitted. values
+resid_fitted <- plot(fit, which=1)
+# residual qq plot
+resid_qq <- plot(fit, which=2)
+# histogram of residuals
+resid_hist <- hist(fit$residuals)
+
+# plots for linear spline model
+# residual vs. fitted. values
+resid_fitted <- plot(spline.lin.t, which=1)
+# residual qq plot
+resid_qq <- plot(spline.lin.t, which=2)
+# histogram of residuals
+resid_hist <- hist(spline.lin.t$residuals)
+
+# plots for natural spline model
+# residual vs. fitted. values
+resid_fitted <- plot(natural.lin, which=1)
+# residual qq plot
+resid_qq <- plot(natural.lin, which=2)
+# histogram of residuals
+resid_hist <- hist(natural.lin$residuals)
+```
+
+**Comment:** The residuals are more extreme for a linear regression, but are similar between a linear spline and natural spline.
+
+
+## 7. Test for linearity
+
+__Using the linear spline and natural spline models, I ran tests for linearity.__
+
+```{r}
+# test for linearity (linear spline model)
+anova(fit, spline.lin.t)
+
+# test for linearity (natural spline model)
+anova(fit, natural.lin)
+```
+
+**Interpretation:** There were significant difference between linear vs. linear spline model, as well as between linear vs. natural spline model, meaning there is an evidence of non-linearity (p-value=0.00018 for linear spline and p-value=0.00034 for natural spline model).
+
+
+## 8. Model fit based on various metrics
+
+__Comparing the fits of the linear, linear spline, and natural spline models ($R^2$/adjusted $R^2$ values, mean squared errors, AICs, and BICs).__
+
+```{r}
+# model fit metrics
+summary(fit)
+summary(spline.lin.t)
+summary(natural.lin)
+
+# nested models tests
+anova(fit, spline.lin.t)
+anova(fit, natural.lin)
+
+# AIC values to compare non-nested models
+AIC(fit)
+AIC(spline.lin.t)
+AIC(natural.lin)
+
+# BIC values to compare non-nested models
+BIC(fit)
+BIC(spline.lin.t)
+BIC(natural.lin)
+
+# print multiple model metrics
+broom::glance(fit)
+broom::glance(spline.lin.t)
+broom::glance(natural.lin)
+```
+
+**Comparison:** The R-square and adjusted R-square are 0.75 and 0.74 for the linear model, 0.82 and 0.81 for the linear spline model, and 0.83 and 0.81 for the natural spline model, respectively. 
+The mean squared errors are 40.6, 29.9, and 29.9 respectively. 
+AICs are 396.5, 381.0, and 381.8 respectively. 
+BICs are 402.8, 393.5, and 396.4 respectively. 
+
+The natural spline model would be the best choice considering its high prediction accuracy shown as the smallest R-square, adjusted R-square, and AIC.
+
+
+
+# Part 2: NHANES Study
+
+The following data come from the NHANES study. We are interested in estimating ferritin levels based on a handful of covariates in the data.
+
+## Data management
+
+```{r}
+# load in data
+nhanes = read_csv("nhanes_subset.csv")
+```
+
+
+## 1. Full model
+
+__Fitting a multiple linear regression to estimate ferritin with all predictors in the data set.__
+
+```{r}
+# fit max model
+full <- lm(ferritin ~ ., data=nhanes)
+summary(full)
+
+# residual plots
+# residual vs. fitted. values
+resid_fitted <- plot(full, which=1)
+
+# residual qq plot
+resid_qq <- plot(full, which=2)
+
+# histogram of residuals
+resid_hist <- hist(full$residuals)
+
+# C+R plots
+crPlots(full)
+```
+
+**Comment:** There are several extreme outliers shown from the residuals plot. Creatinine, urine, glycohemoglobin and insulin have right tails thus need to be log transformed.  
+
+
+## Transforming Variables
+
+```{r}
+# log transforming and dropping un-transformed values
+nhanes = nhanes %>%
+  mutate(log_creatinine_urine = log(creatinine_urine),
+         log_insulin = log(insulin),
+         log_ferritin = log(ferritin),
+         log_ghb = log(glycohemoglobin)) %>%
+  dplyr::select(-c(creatinine_urine, insulin, ferritin, glycohemoglobin)) # remove original variables
+
+# refit model with all predictors 
+maxmodel_log = lm(log_ferritin ~ ., data = nhanes)
+
+# check model fit and check for influential points
+# residual plots
+plot(maxmodel_log, which = 1:2)
+# C+R plots
+crPlots(maxmodel_log, ylab = "C + R (ferritin)")
+```
+
+
+## 2. VIF
+
+__Checking for collinearity in the model with all predictors included.__
+
+```{r}
+# check for collinearity
+full_col <- vif(maxmodel_log)
+full_col
+```
+
+**Comments:** The vifs are high in weight, height, bmi, arm circumference, and waist circumference. Thus, the collinearity could affect our statistical inference.
+
+
+## 3. Variable selection
+
+__Running backward selection as well as cross-validated (10-fold) lasso regression, ridge regression, and elastic net to choose a model from the full set of covariates used in the previous section.__
+
+```{r}
+set.seed(123) 
+
+# backward selection 
+backward <- suppressWarnings(ols_step_backward_p(maxmodel_log))
+backward$model
+backward$metrics
+
+X = model.matrix(maxmodel_log)[,-1]
+Y = maxmodel_log$model$log_ferritin
+
+# fit lasso 
+lasso.cv = cv.glmnet(y = Y, x = X, family = "gaussian", alpha = 1)
+coef(lasso.cv, s = lasso.cv$lambda.min)
+
+# fit ridge 
+ridge.cv = cv.glmnet(y = Y, x = X, family = "gaussian", alpha = 0)
+coef(ridge.cv, s = ridge.cv$lambda.min)
+
+# elastic net (use alpha = 0.5 for this)
+enet.cv = cv.glmnet(y = Y, x = X, family = "gaussian", alpha = 0.5)
+coef(enet.cv, s = enet.cv$lambda.min)
+```
+
+**Comment:** The backwards model selection was the most strict on selecting variables. The ridge regression was the least strict on selecting variables. The lasso and elastic net were less strict than backwards model but stricter than the ridge model. The magnitude of the coefficients for the variables selected were similar between the different models used.
+
+
+## 4. VIFs and model selection
+
+At least 2 or 3 of the variables that had high collinearity were removed from the models. It can distort the observed effect of the variables if they all remain in the model, so by removing them it is easier to examine the individual effects of variables in the models.
+
+
+## 5. Compare model fit
+
+__Comparing the model fit from the final models from lasso, ridge, and elastic net.__
+
+```{r}
+# MSEs from the 3 different models
+lasso.cv$index[1]
+ridge.cv$index[1]
+enet.cv$index[1]
+lasso.cv$cvm[38]
+ridge.cv$cvm[96]
+enet.cv$cvm[38]
+
+# R2 values
+lasso.cv$glmnet.fit$dev.ratio[38]
+ridge.cv$glmnet.fit$dev.ratio[96]
+enet.cv$glmnet.fit$dev.ratio[38]
+```
+
+**Decision:** The elastic net model would be my choice. The result of the elastic net model had the lowest MSE compared to lasso or ridge regression models. The R-square of the elastic model was not the highest, but it was still similar to others.
+
+
+
+```{r}
+
+sessionInfo()
+
+```

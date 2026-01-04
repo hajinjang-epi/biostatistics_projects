@@ -1,0 +1,239 @@
+---
+title: "Poisson & Negative Binomial Regression of Physician Office Visits"
+author: "Hajin Jang"
+Date: "4/16/2024"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_depth: '3'
+    code_folding: show
+---
+
+### This project analyzes count data on physician office visits using Poisson and negative binomial regression, evaluates model assumptions, addresses overdispersion and zero inflation, and compares model fit across alternative count modeling strategies.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(error = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(here)
+library(MASS)
+library(pscl)
+library(lmtest)
+library(car)
+
+```
+
+
+## 0. Load the data
+
+The data were obtained from a survey that was aimed to investigate the factors associated with the number of physician office visits over the past two years. The surveys contain interview from 2,500 people in the United States. They include demographics, health condition, and insurance information of each interviewee.
+
+```{r}
+# read in data
+phys<-read.csv("physvisit.csv")
+phys$health<-as.factor(phys$health)
+```
+
+
+## 1. Visualize Data
+
+__Generating a histogram of the outcome variable.__
+
+```{r}
+# histogram of outcome
+phys %>% ggplot(aes(x=visit)) + geom_histogram(binwidth = 1)+ ggtitle("Histogram of physician office visits")
+
+# summary statistics
+summary(phys$visit)
+```
+
+**Comment:** Linear regression is not appropriate. Poisson model is appropriate since the outcome is a count variable. Number of physician office visits must be whole numbers and cannot be less than 0. 
+
+
+## 2. Poisson model
+
+__Fitting a Poisson model that estimates the expected number of physician office visits adjusting for health status, sex, race, condition of limiting activities of living, race, private insurance information, age, chronic conditions, and education.__  
+
+```{r}
+# Poisson model
+m1 <- glm(visit ~ health + sex + adldiff + race + privins + age + cond + edu, data = phys, family = poisson(link = "log"))
+# show model output
+summary(m1)
+```
+
+**Interpretation:** The difference in log of the expected physician office visit count associated with a 1-unit increase in chronic conditions is 0.142, holding self-perceived health status, sex, condition that limits activities of daily living, race, private insurance indicator, age in years, and number of years of education constant.It appears that all the variables in the model are significantly associated with physician office visits.
+
+
+## 3. Model Assumptions
+
+__Evaluation of the fit of the model.__
+
+```{r}
+# check linearity
+crPlots(m1)
+
+# check collinearity VIF
+vif(m1)
+
+# check problematic points
+influenceIndexPlot(m1, c("cook","studentized","hat"))
+
+# check overdispersion (whether mean=variance)
+dev <- deviance(m1)
+X2 <- sum(residuals(m1, type = "pearson")^2)
+df <- m1$df.residual
+
+dev/df
+X2/df
+```
+
+**Interpretation:** The linearity assumption was met, and the low vif number meant there was no collinearity. However, the cook's distance, studentized, and hat plot showed there may be some problematic points (1284 and 1329). When checking whether the mean was equal to variance, both deviance and Pearson test statistics were big and larger than 1, indicating overdispersion.
+
+
+## 4. Unmet assumptions
+
+If there is overdispersion in the model that was not properly accounted for, the estimates probably won't change but the standard error and p-value from our model will be wrong and it would introduce type I error. To handle the overdispersion, we could either adjust the standard errors, or fit a more flexible model that allows for different mean and variance.
+
+
+## 5. Negative Binomial Model
+
+__Fitting a negative binomial regression model using the same variables as the Poisson model above.__
+
+```{r}
+# fit negative binomial model
+m2 <- glm.nb(visit ~ health + sex + adldiff + race + privins + age + cond + edu, data = phys)
+
+# show model output
+summary(m2)
+```
+
+**Comment:** Compared with the Poisson output, the negative binomial output is not significant in sex and race anymore. The main difference could be that the negative binomial distribution has an extra parameter (𝛾) that allows the mean to be different from the variance.
+
+
+## 6. LRT
+
+__Likelihood ratio test to compare the Poisson and negative binomial models.__
+
+```{r}
+# likelihood ratio test
+odTest(m2)
+```
+
+**Comment:** The p-value was shown as < 2.2e-16, suggesting there is overdispersion in the original Poisson model which is accounted for in the negative binomial model. In this case, the negative binomial model should be used.
+
+
+## 7. Model fit metrics
+
+__Comparison of the Poisson and negative binomial models using other metrics of model fit (log-likelihood, deviance, AIC, BIC, pseudo R^2).__
+
+```{r}
+AIC(m1);BIC(m1)
+AIC(m2);BIC(m2)
+deviance(m1)
+deviance(m2)
+```
+
+**Comment:** Based on the results for AIC, BIC, and overall deviance, I would choose negative binomial model since it had better performance.
+
+
+## 8. Difference in log expected count
+
+```{r}
+m2$coefficients[9]
+```
+
+**Comment:** The log of the expected number of visits were 0.159 higher for one with 1 chronic health condition compared to one with none, holding other variables constant.
+
+
+## 9. Expected count
+
+```{r}
+exp(m2$coefficients[9])
+```
+
+**Interpretation:** The ratio of the expected number of visits was 1.172 for one with 1 chronic health condition compared to one with none, holding other variables constant.
+
+
+## 10. Modeling effect modification
+
+__Adding an interaction term between private insurance and chronic conditions.__
+
+```{r}
+# model with interaction
+m3 <- glm.nb(visit ~ health + sex + adldiff + race + privins + age + cond + edu + privins:cond, data = phys)
+
+# output
+summary(m3)
+exp(m3$coefficients[7])
+
+# with insurance (privins=0)
+m3$coefficients["cond"]
+exp(m3$coefficients["cond"])
+
+# without insurance (privins=1)
+m3$coefficients["cond"]+ m3$coefficients["privins:cond"]
+exp(m3$coefficients["cond"]+ m3$coefficients["privins:cond"])
+```
+
+**Interpretation:**
+
+The log of the expected number of visits was 0.151 higher for someone with insurance increasing 1 chronic health condition, holding other variables constant.
+
+The ratio of expected number of visits was 1.163 for someone with insurance increasing 1 chronic health condition, holding other variables constant.
+
+The log of the expected number of visits was 0.185 higher for someone without insurance increasing 1 chronic health condition, holding other variables constant.
+
+The ratio of expected number of visits was 1.203 for someone without insurance increasing 1 chronic health condition, holding other variables constant.
+
+
+## 11. Testing for Effect modification
+
+__Testing if the association between chronic conditions and number of visits is modified by private insurance status.__
+
+```{r}
+# likelihood ratio test
+anova(m2, m3, test = "LRT")
+```
+
+**Interpretation:** There was no significant difference between including the interaction term between private insurance status and chronic conditions as p=0.29>0.05. Thus using the model without the interaction term would be better. 
+
+
+## 12. Checking model fit
+
+```{r}
+# check model fit/problematic points
+pchisq(deviance(m2), df = m2$df.residual, lower.tail = F)
+pchisq(sum(residuals(m2, type = "pearson")^2), df = m2$df.residual, lower.tail = F)
+influenceIndexPlot(m2, c("Cook", "student", "hat"))
+```
+
+**Interpretation:** Both two GOF tests had p-value smaller than 0.05, indicating that we need to reject the null and conclude that the model had a poor fit.
+
+
+## 13. Zero-Inflation
+
+```{r}
+# checking for zero-inflation
+phys %>% ggplot(aes(x=visit)) + geom_histogram(binwidth = 1)+ ggtitle("Histogram of physician office visits")
+
+mean(phys$visit==0)
+performance::check_zeroinflation(m2)
+```
+
+**Comment:** I'm concerned about zero-deflation rather than zero-inflation. The ratio between observed and predicted zeros was larger than 1, which means there were fewer zeros than expected and zero-deflation occurs.
+
+
+## 14. Summary
+
+For the number of physician office visits, a negative binomial model was appropriate adjusting for self-perceived health status, sex, conditions that limit activities of daily living, race, private insurance, age, chronic conditions, and education; however, sex and race was not significantly associated with the outcome. Adding an interaction term between chronic conditions and private insurance did not significantly improve the model. For the model fit, there may be some potential problematic points and zero-deflation.
+
+
+
+```{r}
+sessionInfo()
+```

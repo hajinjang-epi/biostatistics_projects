@@ -1,0 +1,200 @@
+---
+title: "mixed_model_vaccination"
+author: "Hajin Jang"
+date: "2025-11-12"
+output:
+  html_document:
+    toc: true
+    toc_float: False
+    number_sections: False
+---
+
+### This analysis assessed whether influenza vaccination is associated with reduced emergency department visits for asthma exacerbation among children and adolescents, and whether this association differs by race.
+
+## About the data
+
+The analysis used longitudinal encounter-level data from children and adolescents aged 2 to 21 years who were hospitalized with asthma, with up to seven clinical encounters per patient. The binary outcome was emergency department visits due to asthma exacerbation, and key exposures included influenza vaccination status and race, along with clinical covariates such as lung function, eosinophil levels, age, and coexisting respiratory conditions. Mixed-effects logistic regression models with random intercepts and slopes were fitted and compared, followed by interaction analyses and population-averaged GEE models to evaluate racial disparities and the robustness of the vaccination effect. 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE}
+library(tidyverse)
+library(haven)
+library(VIM)
+library(lme4)
+library(multcomp)
+library(GLMMadaptive)
+library(geepack)
+```
+
+
+## Data cleaning
+
+```{r}
+asthma <- read_csv("asthma.csv")
+
+# Check missingness
+summary(is.na(asthma))
+
+# Categorical variables to factors
+asthma <- asthma %>%
+  mutate(
+    eosin03 = as.factor(eosin03),
+    fev1fvc75 = as.factor(fev1fvc75),
+    black = as.factor(black),
+    influenzavaccine = as.factor(influenzavaccine),
+    coexisting = as.factor(coexisting),
+    exacerbationed = as.factor(exacerbationed)
+  )
+
+summary(asthma)
+```
+
+
+## Fit models
+
+#### Random-intercept model
+
+```{r}
+# Whether receiving an influenza vaccination is associated with Emergency Department (ED) visit due to asthma exacerbation
+ri <- glmer(
+  exacerbationed ~ influenzavaccine + patientage + black + fev1fvc75 
+  + eosin03 + coexisting + encounterid + (1 | personid),
+  data = asthma, 
+  family = binomial,
+  control = glmerControl(optimizer = "bobyqa")
+)
+
+# Summarize the model
+summary(ri)
+```
+
+
+#### Random slope model with independent random components
+
+```{r}
+rs.ind <- glmer(
+  exacerbationed ~ influenzavaccine + patientage + black + fev1fvc75 
+  + eosin03 + coexisting + encounterid + (encounterid || personid),
+  data = asthma,
+  family = binomial,
+  control = glmerControl(optimizer = "bobyqa")
+)
+
+# Summarize the model
+summary(rs.ind)
+```
+
+
+#### Random slope model with potentially correlated random components
+
+```{r}
+rs.corr <- glmer(
+  exacerbationed ~ influenzavaccine + patientage + black + fev1fvc75 
+  + eosin03 + coexisting + encounterid + (encounterid | personid),
+  data = asthma,
+  family = binomial,
+  control = glmerControl(optimizer = "bobyqa")
+)
+
+# Summarize the model
+summary(rs.corr)
+```
+
+**Comment:**
+The warnings suggest that the random-slope model with correlated random effects may be too complex relative to the underlying data structure. The optimizer reached the maximum number of function evaluations and the gradient did not fall below the tolerance, indicating that the model struggled to fully converge. This is often seen when the data provide limited information to reliably estimate a more complex random-effect structure. For the purposes of this assignment, I report the results as obtained, but in practice, simplifying the random-effect specification or increasing the optimization limits would be a better option.
+
+
+#### Model comparison
+```{r}
+anova(ri, rs.ind, rs.corr)
+```
+
+**Interpretation:** 
+The chi-square tests show that each more complex model performs significantly better than the simpler alternative (p<0.05). In addition, the random-slope model with correlated random effects (rs.corr) has the lowest AIC (1172.8) and BIC (1232.6), indicating that it provides the best overall fit.
+
+
+#### Best model specification
+
+$\text{logit}(\text{Pr}[y_{ij}=1|x_{ij}, v_i]) = \beta_{0} + \beta_{1}\text{influenzavaccine}_{ij} + \beta_2\text{patientage}_{ij} + \beta_3\text{black}_{i} + \beta_4\text{fev1fvc75}_i + \beta_5\text{eosin03}_{i} + \beta_6\text{coexisting}_{i} + \beta_7\text{encounterid}_{ij} + {v}_{0i} + {v}_{7i}\text{encounterid}_{ij}$
+
+$\begin{bmatrix} u_{0j} \\ u_{1j} \end{bmatrix} \sim N\begin{pmatrix}\begin{bmatrix} 0 \\ 0 \end{bmatrix}, \begin{bmatrix} \sigma^2_{u0} & \sigma_{u01} \\ \sigma_{u01} & \sigma^2_{u1} \end{bmatrix}\end{pmatrix}$
+
+
+## Augment random intercept model
+
+```{r}
+ri.int <- glmer(exacerbationed ~ influenzavaccine*black + patientage + fev1fvc75 
+                + eosin03 + coexisting + encounterid + (1 | personid),
+                data = asthma,
+                family = binomial, 
+                control = glmerControl(optimizer = "bobyqa"))
+
+# Summary of the model
+summary(ri.int)
+
+# Get odds ratios and confidence intervals
+cbind(exp(fixef(ri.int)),exp(confint(ri.int, method="Wald")))[10,]
+```
+
+**Comment:** 
+The interaction term is not significant, and the 95% confidence interval includes 1, indicating no meaningful difference in the vaccination–ED visit relationship between Black and White patients. In other words, there is no evidence of racial disparities in how influenza vaccination relates to ED visits for asthma exacerbation.
+
+
+## Interpretation
+
+**clinical effect of influenza vaccination on ED visit due to asthma exacerbation**
+
+```{r}
+# Summary of the model
+summary(ri.int)
+
+# OR & 95% CI for influenzavaccine1
+beta  <- fixef(ri.int)["influenzavaccine1"]
+se    <- sqrt(diag(vcov(ri.int)))["influenzavaccine1"]
+
+lower <- beta - 1.96 * se
+upper <- beta + 1.96 * se
+
+OR      <- exp(beta)
+OR_low  <- exp(lower)
+OR_high <- exp(upper)
+
+c(OR = OR, CI_lower = OR_low, CI_upper = OR_high)
+```
+
+**Comment:** 
+Based on the results of the random intercept model, influenza vaccination did not demonstrate a clinically meaningful reduction in ED visits due to asthma exacerbation. The estimated effect of vaccination was not statistically significant (Estimate = −0.35478, p = 0.2129), corresponding to an odds ratio of 0.7013. The 95% confidence interval includes 1 (95% CI = 0.4013-1.2256), indicating that this decrease is not statistically significant.
+
+
+## Fitting GEE
+
+**To aseess if the effect of receiving an influenza vaccination on ED visit due to asthma exacerbation is impacted by racial disparities, adjusting for the same covariates**
+
+```{r}
+# Exacerbationed as numeric
+asthma <- asthma %>%
+  mutate(exacerbationed = as.numeric(as.character(exacerbationed)))
+
+gee <- geepack::geeglm(formula = exacerbationed ~ influenzavaccine*black + patientage + 
+              fev1fvc75 + eosin03 + coexisting + encounterid,
+              id = personid,
+              data = asthma,
+              family = binomial(link = "logit"),
+              corstr = "exchangeable",
+              scale.fix = T)
+summary(gee)
+
+# GEE model
+print(coef(gee))
+
+# RI model
+print(fixef(ri.int))
+```
+
+**Comment:** The GEE and random-intercept models produce effects that point in the same direction, but the GEE estimates are smaller (roughly 68–72% of the RI estimates). This pattern is expected because the two approaches target different parameters: GEE yields population-averaged effects across all participants, whereas the random-intercept model produces subject-specific effects that incorporate individual-level variability through random effects.
+
+

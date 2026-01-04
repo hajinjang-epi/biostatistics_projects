@@ -34,7 +34,7 @@ library(multcomp)
 
 ```{r}
 # read in data using read_xlsx() function 
-hdl <- read_xlsx("hwdata1.xlsx")
+hdl <- read_xlsx("lipids.xlsx")
 ```
 
 
@@ -43,7 +43,7 @@ hdl <- read_xlsx("hwdata1.xlsx")
 
 ### Part 1) Fitting SLR models
 
-__Separate simple linear regression models for assessing the association of total cholesterol level (cholesterol), total triglyceride level (triglyceride) and sinking pre-beta lipoprotein (spbl) with HDL (HDL) (mg/dL).__
+__Separating simple linear regression models for assessing the association of total cholesterol level (cholesterol), total triglyceride level (triglyceride) and sinking pre-beta lipoprotein (spbl) with HDL (HDL) (mg/dL).__
 
 ```{r}
 # model with just cholesterol
@@ -140,7 +140,7 @@ The model explained only 18% of HDL and when compared with adjusted R-squared=11
 
 ### Part 5) Variable added test
 
-__Fit a multivariable model and test whether sinking pre-beta (spbl) is associated with HDL after the combined contribution of cholesterol and triglyceride levels is taken into account (i.e., cholesterol and triglycerides are already in the model). Assume no interactions exist. State the appropriate null hypothesis for this test and interpret the results of the test.__
+__Fitting a multivariable model and testing whether sinking pre-beta (spbl) is associated with HDL after the combined contribution of cholesterol and triglyceride levels is taken into account.__
 
 ```{r}
 reduced_mlr <- lm(HDL ~ cholesterol + triglyceride, data = hdl)
@@ -155,7 +155,7 @@ Test results and interpretation: According to the F test result, we reject the n
 
 ### Part 6) Model for effect modification
 
-__We suppose we are interested in evaluating if the association between cholesterol and HDL and the association between triglycerides and HDL depends on the absence/presence of SPBL.__
+__Evaluating if the association between cholesterol and HDL and the association between triglycerides and HDL depends on the absence/presence of SPBL.__
 
 Model: 
 <span style="color: blue;">

@@ -1,0 +1,232 @@
+---
+title: "gee_infant_height"
+author: "Hajin Jang"
+date: "2025-10-15"
+output:
+  html_document:
+    toc: true
+    toc_float: False
+    number_sections: False
+---
+
+### This analysis evaluated whether longitudinal changes in height-for-age z-scores during early childhood differed by socioeconomic status using repeated measurements over the first two years of life.
+
+## About the data
+
+The analysis used data from 200 infants followed from birth to 24 months, with height-for-age z-scores measured approximately every two months, yielding up to 13 repeated observations per child. Socioeconomic status (low vs. high) and sex were considered key covariates, and stunting was defined as HAZ < -2 at each visit. After descriptive analyses of missingness and mean HAZ trajectories by SES, generalized estimating equations were used to model population-averaged changes in HAZ over time, assess differences in growth rates between SES groups, and select an appropriate working correlation structure. 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Data cleaning
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(haven)
+library(mice)
+library(VIM)
+library(MASS)
+library(gee)
+library(geepack)
+library(geeM)
+```
+
+```{r}
+hazdata <-  read_csv("hazdata.csv")
+
+# make factors/dummy variables for categorical data
+hazdata <- hazdata %>%
+  mutate(., ses = as.factor(ses),
+         sex = as.factor(sex),
+         stunt = as.factor(stunt))
+```
+
+
+## EDA
+
+#### Missing data pattern: height-to-age z-score (HAZ)
+
+```{r}
+# transfer to wide data
+hazdata.wide = hazdata %>% 
+  tidyr::pivot_wider(., id_cols = c(id, ses, sex), names_from = visit, values_from = haz)
+dim(hazdata.wide)
+
+# missing pattern
+mice::md.pattern(hazdata.wide[,4:16])
+summary(VIM::aggr(hazdata.wide[,4:16]))
+```
+
+**Complete case:**155/200 = 77.5%
+
+**Monotonic missingness:** (3+3+2+3+2+2+4+3+8+3+12)/200 = 22.5%
+
+**Intermittent missingness:** 0
+
+**Comment:** 155 participants (77.5%) have complete data for all visits. The remaining 22.5% of participants show a monotonic missing data pattern, where data is missing from a certain visit onward. There are no cases of intermittent missingness, which simplifies data handling. The plot and summary confirm that the missingness pattern is well-structured and monotonic rather than scattered. This predictable pattern supports the use of methods such as GEE models, which assume systematic rather than random missingness.
+
+
+#### Mean trajectories of the height-to-age z score by SES
+
+```{r}
+# Numerical descriptive statistics
+hazdata %>% 
+  group_by(ses) %>% 
+  summarise(., 
+                   n = sum(!is.na(haz)),
+                   minimum = min(haz, na.rm = T),
+                   q25 = quantile(haz, probs = 0.25, na.rm = T),
+                   med = median(haz, na.rm = T),
+                   q75 = quantile(haz, probs = 0.75, na.rm = T),
+                   maximum = max(haz, na.rm = T),
+                   average = mean(haz, na.rm = T),
+                   sd = num(sd(haz, na.rm = T), digits = 2) )
+
+
+# Graphical descriptive statistics
+## Mean trajectory plot by SES
+hazdata %>% 
+  dplyr::group_by(ses, visit) %>% 
+  dplyr::summarise(n = sum(!is.na(haz)), 
+                   mean = mean(haz, na.rm = T), 
+                   sd = sd(haz, na.rm = T), 
+                   se = sd/sqrt(n)) %>% 
+  ggplot2::ggplot(., aes(x = visit, y = mean, color = ses)) + 
+  ggplot2::geom_errorbar(aes(ymin = mean - 1.96*se, ymax = mean + 1.96*se),
+                         position = position_dodge(0.3), width = 0.4) + 
+  ggplot2::geom_point(position = position_dodge(0.3)) + 
+  ggplot2::geom_line(position = position_dodge(0.3)) + 
+  ggplot2::theme_bw() + 
+  ggplot2::theme(legend.position = "top")
+
+```
+
+**Comment:** Children from high SES families consistently showed higher average HAZ values across all visits compared to those from low SES families The mean trajectories plot demonstrates a gradual increase in HAZ during early months, followed by stabilization around 12–18 months, whereas the low SES group exhibits lower and flatter trajectories, indicating slower growth recovery. The difference in mean HAZ between the two groups persists over time, suggesting a sustained disparity in growth performance likely linked to socioeconomic conditions. The narrower variability and higher median values among high SES children also suggest reduced heterogeneity and better nutritional or health status.
+
+
+
+## GEE
+
+#### GEE model equation
+
+$$
+E(HAZ_{ij}) = \beta_0 + \beta_1(SES_i) + \beta_2(Sex_i) + \beta_3(Visit_{ij}) + \beta_4(SES_i \times Visit_{ij})
+$$
+
+**where:**
+
+- \( i \) indexes subjects (children) and \( j \) indexes measurement occasions (visits).
+- \( HAZ_{ij} \): height-for-age z-score for child *i* at visit *j*.
+- \( SES_i \): socioeconomic status (1 = high, 0 = low).
+- \( Sex_i \): child’s sex (1 = male, 0 = female).
+- \( Visit_{ij} \): child’s age in months at each visit, modeled as a **continuous** variable.
+
+**Model interpretation:**
+
+- \( \beta_0 \): expected mean HAZ at birth for low-SES females (reference group).  
+- \( \beta_1 \): difference in baseline HAZ between high- and low-SES children.  
+- \( \beta_2 \): difference in HAZ between males and females.  
+- \( \beta_3 \): rate of change in HAZ per month for low-SES children.  
+- \( \beta_4 \): additional monthly change in HAZ for high-SES children relative to low-SES children.
+
+
+```{r}
+# observed total correlation
+cor(hazdata.wide[,4:16], use = "complete.obs")
+```
+
+**Comment:** The correlation output indicates that correlations decrease over time in this longitudinal dataset.
+
+**Treatment of time variable:** Time was modeled as continuous since the visits were measured regularly (every two months) and the goal is to estimate a linear rate of change in HAZ across early childhood. This provides a parsimonious model and allows clear interpretation of growth rate differences between SES groups.
+
+
+#### Working correlation matrix initiation
+
+Given the correlation output indicating a decline in correlations over time, I plan to use an AR(1) correlation structure, which assumes that observations taken closer in time are more strongly correlated than those further apart.also Since HAZ measurements are taken every two months, and it is reasonable to expect correlations to decay over time.
+
+
+#### Checking assumptions
+
+**Assumptions:**
+1. Individuals represent a random sample from the population of interest.
+
+2. Observations from different subjects (clusters) are independent.
+
+3. Repeated measures from the same subject (cluster) are not independent.
+
+4. If there are missing data, they are Missing Completely at Random (MCAR).
+
+
+#### Fitting the GEE model 
+
+```{r}
+gee.ar = geepack::geeglm(haz ~ ses + sex + visit + ses*visit, id = id, data = hazdata, 
+                               family = gaussian(link="identity"), corstr = "ar1")
+summary(gee.ar)
+```
+
+
+#### Testing working correlation matrix
+
+```{r}
+# independence matrix:
+gee.indep = geepack::geeglm(haz ~ ses + sex + visit + ses*visit, id = id, data = hazdata, 
+                                  family = gaussian(link="identity"), corstr = "independence")
+summary(gee.indep)
+
+# exchangeable matrix:
+gee.exch = geepack::geeglm(haz ~ ses + sex + visit + ses*visit, id = id, data = hazdata,
+                                family = gaussian(link="identity"), corstr = "exchangeable")
+summary(gee.exch)
+
+# unstructured matrix:
+gee.unst = geepack::geeglm(haz ~ ses + sex + visit + ses*visit, id = id, data = hazdata, 
+                                family = gaussian(link="identity"), corstr = "unstructured")
+summary(gee.unst)
+
+# compare QIC
+geepack::QIC(gee.indep)
+geepack::QIC(gee.exch)
+geepack::QIC(gee.ar)
+geepack::QIC(gee.unst)
+```
+
+**Comment:** I ran three additional models using different working correlation structures and compared them using QIC values. The model with the exchangeable correlation matrix showed the best fit, with the lowest QIC of 835.1. This suggests that the correlation between repeated measures within each subject remains fairly constant over time. Therefore, the exchangeable correlation structure is more appropriate for this dataset than the AR(1) structure.
+The AR(1) and unstructured matrices produced higher QIC values (913.6 and 1088.5, respectively), indicating poorer fit. Thus, the exchangeable correlation provides an adequate and efficient representation of within-subject dependence.
+
+
+#### Change in HAZ & SES 
+
+```{r}
+summary(gee.exch)$coefficients[5, ]
+```
+
+**Comment:** The Wald Chi-squared test results show a p-value below 0.05 for the interaction term (β₄ = 0.0348, SE = 0.0024, p < 0.001), indicating that we can reject the null hypothesis and conclude that the change in HAZ over time differs significantly between the two SES groups. The positive interaction coefficient (0.03482) suggests that the negative effect of time (Visit) on HAZ is less pronounced for children in the high SES group. In other words, while HAZ declines over time for both groups, the decrease is less steep for those in the high SES group.
+
+
+#### Estimated changes in HAZ between age one year vs. birth
+
+$$
+HAZ_{ij} = -0.27116 + 0.15161 \times \text{SES}_i + 0.09360\times  \text{Sex}_i - 0.09877 \times  \text{Visit}_{ij} 
++ 0.03482  \times  (\text{SES}_i \times \text{Visit}_{ij}) + \epsilon_{ij}
+$$
+
+##### For the high SES group (SES = 1), the estimated change in HAZ from birth (visit = 0) to one year (visit = 12) is:
+
+$$
+\Delta HAZ_{SES=1} = \beta_3 (12-0) + \beta_4[1\times(12-0)] = (−0.09877×12)+(0.03482×12)=−1.18524+0.41784=−0.7674
+$$
+
+##### For the low SES group (SES = 0), the estimated change in HAZ over the same period is:
+
+$$
+\Delta HAZ_{SES=0} = \beta_3 (12-0) + \beta_4[0\times(12-0)] = −0.09877×12 = −1.18524
+$$
+
+**Comment:** Among children in the low SES group, HAZ is estimated to decrease by 1.185 from birth to one year. Among children in the high SES group, the estimated decline in HAZ over the same period is 0.767.
+

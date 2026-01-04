@@ -1,0 +1,304 @@
+---
+title: "Mixed-Effects Analysis of Energy Score Trajectories in T2D & SIHD Patients"
+author: "Hajin Jang"
+date: "9/14/2025"
+output:
+  html_document:
+    toc: true
+    toc_depth: '3'
+    toc_float: true
+    toc_collapsed: true
+    number_sections: false
+  pdf_document:
+    toc: true
+    toc_depth: '3'
+---
+
+### This analysis evaluates longitudinal changes in energy scores across 2×2 randomized treatment strategies in patients with type 2 diabetes and stable ischemic heart disease, using mixed-effects models to account for within-subject correlation from repeated measurements. 
+
+
+## About the data
+
+This study uses data from a 2×2 factorial randomized clinical trial of adults with type 2 diabetes mellitus and stable ischemic heart disease, in which participants were assigned to different cardiac and glycemic treatment strategies and followed for up to four years. The objective is to examine whether energy scores change over time and differ by treatment assignment, while appropriately accounting for the correlation among repeated measurements within individuals using longitudinal mixed-effects models.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,     # print code
+                      warning = FALSE, # suppress warnings
+                      message = FALSE, # suppress messages
+                      error = TRUE,    # allow knitting with errors
+                      comment = NA)
+```
+
+
+## Data Import
+
+```{r}
+library(readr)
+library(tableone)
+library(dplyr)
+library(gt)
+library(mice)  
+
+dmihd <- read_csv("dmihd.csv")
+str(dmihd)
+dmihd <- dmihd %>%
+  mutate(sex = as.factor(sex),
+         raceeth = as.factor(raceeth),
+         cardtrt = as.factor(cardtrt),
+         diabtrt = as.factor(diabtrt),
+         trt = as.factor(trt),
+         age4 = as.factor(age4),
+         bmi4 = as.factor(bmi4),
+         death = as.factor(death))
+```
+
+
+## Table 1
+
+```{r}
+table1 <- dmihd %>% filter(year == 0)
+
+vars <- c("age", "sex", "raceeth", "bmi")
+cat_vars <- c("sex", "raceeth")
+
+# check for normality of continuous variables
+par(mfrow = c(2, 2))
+hist(table1$age)
+hist(table1$bmi)
+qqnorm(table1$age)
+qqline(table1$age)
+qqnorm(table1$bmi)
+qqline(table1$bmi)
+
+# For All patient
+table1_all <- CreateTableOne(vars = vars, data = table1, factorVars = cat_vars)
+print(table1_all, showAllLevels = TRUE)
+# For cardtrt
+table1_cardtrt <- CreateTableOne(vars = vars, strata = "cardtrt", data = table1, factorVars = cat_vars)
+print(table1_cardtrt, showAllLevels = TRUE)
+# For diabtrt
+table1_diabtrt <- CreateTableOne(vars = vars, strata = "diabtrt", data = table1, factorVars = cat_vars)
+print(table1_diabtrt, showAllLevels = TRUE)
+
+# Combine them into a table1
+data <- data.frame(
+  Variable = c("Number of patients (n)", "Age (years, sd)", "Sex (female, %)", "Race/Ethnicity (%)","  Non-Hispanic white",  "  Non-Hispanic nonwhite", "  Hispanic", "BMI (kg/m2, sd)"),
+  
+  All_Patients = c(2071, "61.92 (8.76)", "604 (29.2)", " ", "1379 (66.6)", "431 (20.8)", "261 (12.6)", "31.64 (5.71)"),
+  
+  Revascularization = c(1017, "61.80 (8.61)", "291 (28.6)", " ", "667 (65.6)", "219 (21.5)", "131 (12.9)", "31.39 (5.71)"),
+  Medical_Therapy = c(1054, "62.04 (8.90)", "313 (29.7)", " ", "712 (67.6)", "212 (20.1)", "130 (12.3)", "31.89 (5.70)"),
+  P_Value_Card = c("", "0.536", "0.622", "0.630", "", "", "", "0.047"),
+  
+  Insulin_Sensitization = c(1052, "61.94 (9.03)", "310 (29.5)", " ", "701 (66.6)", "222 (21.1)", "129 (12.3)", "31.65 (5.68)"),
+  Insulin_Provision = c(1019, "61.90 (8.46)", "294 (28.9)", " ", "678 (66.5)", "209 (20.5)", "132 (13.0)", "31.64 (5.74)"),
+  P_Value_Diab = c("", "0.923", "0.795", "0.867", "", "", "", "0.981")
+)
+
+gt_table <- data %>%
+  gt() %>%
+  tab_header(
+    title = "Baseline Characteristics by Treatment Strategy"
+  ) %>%
+  cols_label(
+    Variable = "Variable",
+    All_Patients = "All patients at baseline",
+    Revascularization = "Early Coronary Revascularization",
+    Medical_Therapy = "Medical Therapy",
+    P_Value_Card = "P-value",
+    Insulin_Sensitization = "Insulin Sensitization",
+    Insulin_Provision = "Insulin Provision",
+    P_Value_Diab = "P-value"
+  ) %>%
+  tab_footnote(
+    footnote = "Continuous variables are represented as mean (SD), with P-values based on t-test.",
+    locations = cells_body(columns = 1, rows = c(2,8))
+  ) %>%
+  tab_footnote(
+    footnote = "Categorical variables are represented as N (%), with P-values based on chi-square test.",
+    locations = cells_body(columns = 1, rows = c(3:7))
+  )
+
+gt_table
+```
+
+**Justification:** T-tests or Wilcoxon tests were selected depending on the distribution of the continuous variables. Based on the histogram plots, both age and BMI showed slight skewness but were still reasonably close to a normal distribution, so t-tests were deemed appropriate. For categorical variables, Chi-square or Fisher’s exact tests were considered. Since all expected cell counts exceeded 5, the Chi-square test was used.
+
+
+## EDA
+
+#### For the whole dataset
+
+```{r}
+MP <- md.pattern(dmihd[, c("age", "sex", "raceeth", "bmi", "energy", "trt")])
+
+MP_trt1 <- md.pattern(dmihd[ dmihd$trt == 1, c("age", "sex", "raceeth", "bmi", "energy")])
+MP_trt2 <- md.pattern(dmihd[ dmihd$trt == 2, c("age", "sex", "raceeth", "bmi", "energy")])
+MP_trt3 <- md.pattern(dmihd[ dmihd$trt == 3, c("age", "sex", "raceeth", "bmi", "energy")])
+MP_trt4 <- md.pattern(dmihd[ dmihd$trt == 4, c("age", "sex", "raceeth", "bmi", "energy")])
+```
+
+#### Only baseline
+
+```{r}
+Mp_base <- md.pattern(table1[, c("age", "sex", "raceeth", "bmi", "energy", "trt")])
+MP_trt1_base <- md.pattern(table1[ table1$trt == 1, c("age", "sex", "raceeth", "bmi", "energy")])
+MP_trt2_base <- md.pattern(table1[ table1$trt == 2, c("age", "sex", "raceeth", "bmi", "energy")])
+MP_trt3_base <- md.pattern(table1[ table1$trt == 3, c("age", "sex", "raceeth", "bmi", "energy")])
+MP_trt4_base <- md.pattern(table1[ table1$trt == 4, c("age", "sex", "raceeth", "bmi", "energy")])
+```
+
+```{r}
+# missing by treatment group (trt) for the whole dataset
+NA_by_trt <- dmihd %>%
+  group_by(trt) %>%
+  summarise(
+    total = n(),
+    NA_energy = sum(is.na(energy)),
+    NA_energy_pct = sum(is.na(energy))/total,
+    NA_bmi = sum(is.na(bmi)),
+    NA_bmi_pct = sum(is.na(bmi))/total
+  ) %>%
+  ungroup()
+
+# display the missingness in energy by treatment group
+print(NA_by_trt)
+
+# missing by treatment group (trt) for only baseline
+NA_by_trt_base <- table1 %>%
+  group_by(trt) %>%
+  summarise(
+    total = n(),
+    NA_energy = sum(is.na(energy)),
+    NA_energy_pct = sum(is.na(energy))/total,
+    NA_bmi = sum(is.na(bmi)),
+    NA_bmi_pct = sum(is.na(bmi))/total
+  ) %>%
+  ungroup()
+
+print(NA_by_trt_base)
+```
+
+**Missing Data Pattern:**
+The missing data pattern shows that only BMI and energy score have missing values. There are 9,184 complete observations, with 529 missing energy scores and 56 missing BMI values. Of these, 21 observations are missing both BMI and energy scores, 35 are missing only BMI, and 508 are missing only energy.
+
+**Missing Pattern by Treatment Group:**
+The proportion of missing energy data is fairly consistent across all treatment groups, ranging from 4.80% to 5.84%, suggesting that missingness is not strongly associated with any specific group. Similarly, the missing BMI data is minimal and evenly distributed, with rates between 0.38% and 0.83% across groups.
+
+**Conclusion:**
+Given the low and balanced levels of missingness across treatment groups, the missing data appears to be random or, at the very least, not related to treatment assignment.
+
+
+## Association analysis
+
+#### Plotting the average observed energy trajectories over time per treatment group.
+
+```{r}
+library(ggplot2)
+energy_summary <- dmihd %>%
+  group_by(trt, year) %>%
+  filter(!is.na(trt) & !is.na(year)) %>%
+  summarise(mean_energy = mean(energy, na.rm = TRUE))
+
+energy_plot <- ggplot(energy_summary, aes(x = year, y = mean_energy, group = trt, color = as.factor(trt))) + 
+  geom_point() + 
+  geom_line() + 
+  theme_bw() + 
+  theme(text = element_text(size = 15), legend.position = "top") +
+  labs(x = "Year", y = "Mean Energy Score", color = "Treatment Group", title = "Average Energy Score Over Time by Treatment Group")
+
+print(energy_plot)
+```
+
+**Comment:**
+At baseline, Group 1 had the highest average energy score, followed by Groups 2, 4, and 3, in that order. All treatment groups showed a notable increase in energy scores during the first year after treatment initiation.
+Beyond year 1, energy scores either remained stable or showed slight fluctuations:
+Group 1 continued to improve through year 3, followed by a decline.
+Group 2 remained relatively stable, with a slight uptick in the final year.
+Group 3 peaked in year 3, then declined thereafter.
+Group 4 stayed steady initially but experienced a decline between years 3 and 4.
+By year 4, Group 2 had the highest mean energy score, followed by Groups 4, 1, and 3.
+
+
+#### Random intercept model
+
+$$Energy_{ij} = \beta_0 + \beta_1 \text{trt}_{i} + \beta_2 \text{year}_{ij} + \beta_3 \text{age}_i + \beta_4 \text{sex}_i + \beta_5 \text{raceeth}_i + \beta_6 \text{bmi}_i + v_{0i} + \epsilon_{ij}$$
+
+```{r}
+#REML
+reml.fit = lme4::lmer(formula = energy ~ trt + year + age + sex + raceeth + bmi  + (1 | id), data = dmihd, REML = TRUE)
+print(summary(reml.fit))
+
+#MLE
+mle.fit = lme4::lmer(formula = energy ~ trt + year + age + sex + raceeth + bmi  + (1 | id), data = dmihd, REML = F)
+print(summary(mle.fit))
+```
+
+**Random Effects:**
+The between-subject variance is estimated at 317.0, which is greater than the residual variance of 175.3, indicating substantial variability between individuals. 
+
+**Fixed Effects:**
+1) Treatment (trt): Since |t-value| for trt2, trt3, and trt4 are <1.96, we fail to reject the null hypothesis. This suggests no statistically significant differences in energy scores between these treatment groups and the reference group (trt1), although the estimated coefficients suggest a negative relationship. 
+2) Year: With a |t-value| >1.96, the effect is statistically significant, indicating that energy scores increase over time. We reject the null hypothesis.
+3) Age: The |t-value| is <1.96, so we fail to reject the null hypothesis. This means age is not significantly associated with energy scores. 
+4) Sex: A significant effect is observed (|t-value| >1.96), showing that females have significantly lower energy scores than males, with an average difference of 3.6 units. 
+5) Race/Ethnicity: |t-value| >1.96 only in the race 3 group. There is no significant difference between non-Hispanic non-whites and non-Hispanic whites, but Hispanics have significantly lower energy scores compared to non-Hispanic whites. 
+6) BMI: BMI shows a statistically significant negative association with energy scores. For every one-unit increase in BMI, the energy score decreases by approximately 0.92 units, adjusting for other variables.
+
+
+#### ICC
+
+```{r}
+performance::icc(reml.fit)
+```
+
+**Comment:** The adjusted intraclass correlation coefficient (ICC) is 0.644, meaning that 64.4% of the total variance in energy scores can be explained by differences between individuals.
+
+
+#### Heterogeneity between subjects
+
+$$H_0 : \sigma^2_u = 0$$
+$$H_1 : \sigma^2_u > 0$$
+```{r}
+reduced.fit <- lm(formula = energy ~ trt + year + age + sex + raceeth + bmi, data = dmihd)
+anova(mle.fit,reduced.fit)
+```
+
+**Comment:** Since the p-value/2 is well below 0.05, we reject the null hypothesis, indicating significant heterogeneity across subjects.
+
+
+#### Overall difference in energy scores between trt assignments
+
+$$H_0 : \beta_{trt1} = \beta_{trt2} = \beta_{trt3} = \beta_{trt4} =  0$$
+$$H_1 : \text{at least one } \beta_{\text{trt}} \neq 0$$
+```{r}
+mle.trt = lme4::lmer(formula = energy ~ year + age + sex + raceeth + bmi  + (1 | id), data = dmihd, REML = F)
+anova(mle.fit, mle.trt, test = "LRT")
+anova(mle.fit, mle.trt, test = "Chisq")
+```
+
+**Comment:** Both the LRT and Wald test yield p-values of 0.9756, which are much greater than 0.05. Thus, we fail to reject the null hypothesis, indicating no overall difference in energy scores across treatment groups.
+
+
+#### f. Random slope model (year) 
+
+```{r}
+rs.reml.fit = lme4::lmer(formula = energy ~ trt + year + age + sex + raceeth + bmi  + (year | id), data = dmihd, REML = TRUE)
+print(summary(rs.reml.fit))
+
+rs.mle.fit = lme4::lmer(formula = energy ~ trt + year + age + sex + raceeth + bmi  + (year | id), data = dmihd, REML = F)
+print(summary(rs.mle.fit))
+
+anova(reml.fit, rs.reml.fit, refit = F)
+```
+
+**Conclusion:**
+Since the p-value is below 0.05, we reject the null hypothesis, indicating a significant difference between the two models. The random slope model provides a significantly better fit compared to the random intercept-only model.
+
+**Interpretation:**
+Random effect of year (REML = TRUE): The variance of the random slope for year is 7.289 (SD = 2.70), showing considerable variability across individuals. The correlation between the random intercept and the random slope for year is -0.10, suggesting a slight negative association.
+
+**Fixed effect of year (REML = FALSE):** 
+The t-value of 9.801 indicates that the effect of year is highly significant. On average, each additional year is associated with an increase of about 1.136 units in energy score, after adjusting for other covariates.
+
